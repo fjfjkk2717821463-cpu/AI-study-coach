@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: feynman-friction-coach
+    runtime: docker
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: PORT
+        value: 8000
