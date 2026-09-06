@@ -250,6 +250,15 @@ def _save_api_key(key):
         return False
 
 
+def _mask_key(key):
+    key = (key or "").strip()
+    if not key:
+        return ""
+    if len(key) <= 8:
+        return "****"
+    return f"{key[:4]}****{key[-4:]}"
+
+
 def _fetch_web_text(url):
     """抓取网页并提取标题与 Markdown 正文。"""
     if not _is_public_url(url):
@@ -360,6 +369,52 @@ def api_config_save():
     return jsonify({"ok": True})
 
 
+@app.get("/api/settings")
+def api_settings_get():
+    cfg = coach_v4.load_model_config()
+    active_key = cfg.get("api_key") or coach_v4.load_api_key()
+    return jsonify(
+        {
+            "provider": cfg["provider"],
+            "base_url": cfg["base_url"],
+            "model": cfg["model"],
+            "api_key_masked": _mask_key(active_key),
+            "has_api_key": bool(active_key),
+            "presets": coach_v4.MODEL_PRESETS,
+        }
+    )
+
+
+@app.post("/api/settings")
+def api_settings_save():
+    data = request.get_json(silent=True) or {}
+    provider = (data.get("provider") or "deepseek").strip()
+    if provider not in coach_v4.MODEL_PRESETS:
+        provider = "custom"
+
+    preset = coach_v4.MODEL_PRESETS[provider]
+    base_url = (data.get("base_url") or "").strip() or preset["base_url"]
+    model = (data.get("model") or "").strip() or preset["model"]
+    if not base_url.startswith(("http://", "https://")):
+        return _json_error("接口地址必须以 http:// 或 https:// 开头。")
+    if not model:
+        return _json_error("模型名称不能为空。")
+
+    cfg = coach_v4.load_model_config()
+    new_key = (data.get("api_key") or "").strip()
+    cfg.update(
+        {
+            "provider": provider,
+            "base_url": base_url,
+            "model": model,
+            "api_key": new_key or cfg.get("api_key", ""),
+        }
+    )
+    if not coach_v4.save_model_config(cfg):
+        return _json_error("保存失败，请检查目录写入权限。", 500)
+    return jsonify({"ok": True, "api_key_masked": _mask_key(new_key or cfg["api_key"] or coach_v4.load_api_key())})
+
+
 @app.get("/api/shelf")
 def api_shelf():
     books = bookshelf_mgr.load_shelf()
@@ -455,6 +510,36 @@ def api_sessions():
     return jsonify(session_mgr.list_sessions())
 
 
+@app.get("/api/sessions/search")
+def api_sessions_search():
+    return jsonify(session_mgr.search_sessions(request.args.get("q", "")))
+
+
+@app.post("/api/sessions/rename")
+def api_sessions_rename():
+    data = request.get_json(silent=True) or {}
+    session_path = (data.get("id") or "").strip()
+    if not _valid_session_path(session_path):
+        return _json_error("会话路径无效。", 400)
+    new_subject = (data.get("subject") or "").strip()
+    if not new_subject:
+        return _json_error("新标题不能为空。")
+    if not session_mgr.rename_session(session_path, new_subject):
+        return _json_error("重命名失败，请稍后重试。", 500)
+    return jsonify({"ok": True, "subject": new_subject})
+
+
+@app.post("/api/sessions/delete")
+def api_sessions_delete():
+    data = request.get_json(silent=True) or {}
+    session_path = (data.get("id") or "").strip()
+    if not _valid_session_path(session_path):
+        return _json_error("会话路径无效。", 400)
+    if not session_mgr.delete_session(session_path):
+        return _json_error("删除失败，请稍后重试。", 500)
+    return jsonify({"ok": True})
+
+
 @app.post("/api/session/resume")
 def api_session_resume():
     data = request.get_json(silent=True) or {}
@@ -500,6 +585,41 @@ def api_session_resume():
             "subject": saved.get("subject", ""),
             "messages": messages,
         }
+    )
+
+
+@app.post("/api/chat/regenerate")
+def api_chat_regenerate():
+    data = request.get_json(silent=True) or {}
+    session = SESSIONS.get(data.get("session_id"))
+    if not session:
+        return _json_error("学习会话不存在或已结束，请重新开始。", 404)
+    session["last_active"] = time.time()
+
+    history = session["history"]
+    if not history or history[-1].get("role") != "assistant":
+        return _json_error("没有可重新生成的回答。")
+    history.pop()
+    if not history or history[-1].get("role") != "user":
+        return _json_error("没有可重新生成的回答。")
+
+    def generate():
+        parts = []
+        try:
+            messages = [{"role": "system", "content": session["system_prompt"]}] + history
+            for delta in coach_v4.stream_chat(messages):
+                parts.append(delta)
+                yield _sse({"delta": delta})
+            full_text = "".join(parts)
+            session["history"].append({"role": "assistant", "content": full_text})
+            _persist_session(session)
+            yield _sse({"done": True, "html": _markdown_to_html(full_text)})
+        except Exception as exc:
+            yield _sse({"error": str(exc)})
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
     )
 
 

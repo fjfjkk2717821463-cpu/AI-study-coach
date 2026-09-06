@@ -207,6 +207,85 @@
     .add-book { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 16px; }
     .web-import { margin-top: 0; border-top: 0; padding-top: 0; }
     .empty-hint { color: var(--muted); font-size: 14px; }
+    .chapter-wrap { position: relative; }
+    .chapter-menu {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% + 4px);
+      max-height: 240px;
+      overflow-y: auto;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+      z-index: 20;
+      padding: 4px;
+    }
+    .chapter-menu .cm-item {
+      padding: 8px 10px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-size: 14px;
+      word-break: break-all;
+    }
+    .chapter-menu .cm-item:hover, .chapter-menu .cm-item.selected { background: #eef2ff; }
+    .session-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 8px;
+      background: #fff;
+    }
+    .session-row .s-info { min-width: 0; flex: 1; }
+    .session-row .s-subject { font-weight: 600; word-break: break-all; }
+    .session-row .s-meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .session-row .s-actions { display: flex; gap: 6px; flex: none; }
+    .session-row .s-actions button {
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .session-row .s-actions .danger { color: #b91c1c; }
+    .regenerate-btn {
+      margin-top: 6px;
+      padding: 4px 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .modal { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); display: flex; align-items: center; justify-content: center; z-index: 100; }
+    .modal-card {
+      width: min(460px, 92vw);
+      max-height: 86vh;
+      overflow-y: auto;
+      background: #fff;
+      border-radius: 14px;
+      padding: 24px;
+    }
+    .modal-card h2 { margin: 0 0 14px; font-size: 20px; }
+    .modal-card label { display: block; font-size: 14px; margin: 12px 0 5px; }
+    .modal-card input, .modal-card select {
+      width: 100%;
+      padding: 9px 10px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      font-size: 14px;
+    }
+    .modal-actions { display: flex; gap: 10px; margin-top: 18px; }
+    .modal-actions button { flex: 1; padding: 10px; border-radius: 9px; cursor: pointer; font-size: 14px; border: 1px solid var(--border); background: #fff; }
+    .modal-actions .primary { background: var(--accent); color: #fff; border: 0; }
+    .settings-hint { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
     @media (max-width: 640px) {
       .app { padding: 16px 10px 40px; }
       h1 { font-size: 24px; }
@@ -233,6 +312,7 @@
         <button id="historyBtn" type="button">🕘 继续上次学习</button>
         <button id="reviewBtn" type="button">📚 复习所有总结</button>
         <button id="shelfBtn" type="button">📖 管理书架</button>
+        <button id="settingsBtn" type="button">⚙️ 模型设置</button>
       </div>
     </header>
 
@@ -263,7 +343,10 @@
           <option value="section">小章节</option>
         </select>
         <label for="chapterQuery">或输入章节关键词</label>
-        <input id="chapterQuery" placeholder="例如：第四章 / 熵 / 4；留空则使用下拉选中的章节">
+        <div class="chapter-wrap">
+          <input id="chapterQuery" placeholder="搜索章节，例如：第四章 / 熵 / 4">
+          <div id="chapterMenu" class="chapter-menu hidden"></div>
+        </div>
         <p class="hint">还没有书籍？点击上方「📖 管理书架」，直接导入 .txt / .md / .pdf / .epub 或网页链接。</p>
       </div>
 
@@ -306,9 +389,9 @@
         <button id="historyBackBtn" type="button">← 返回开始学习</button>
       </div>
       <h2>🕘 继续上次学习</h2>
-      <p class="hint">选择一次已保存的会话继续。</p>
-      <select id="sessionSelect"></select>
-      <button id="resumeBtn" class="primary" type="button">继续学习</button>
+      <p class="hint">搜索、继续、重命名或删除之前保存的会话。</p>
+      <input id="sessionSearch" placeholder="🔍 搜索会话标题……">
+      <div id="sessionList"></div>
       <p id="historyError" class="error"></p>
     </section>
 
@@ -331,6 +414,26 @@
         <button id="endBtn" type="button">结束并保存会话</button>
       </div>
     </section>
+
+    <div id="settingsModal" class="modal hidden">
+      <div class="modal-card">
+        <h2>⚙️ 模型与 API 设置</h2>
+        <label for="providerSelect">服务商</label>
+        <select id="providerSelect"></select>
+        <label for="baseUrlInput">接口地址（OpenAI 兼容）</label>
+        <input id="baseUrlInput" placeholder="https://api.example.com/v1/chat/completions">
+        <label for="modelInput">模型名称</label>
+        <input id="modelInput" placeholder="例如：deepseek-chat / gpt-4o-mini">
+        <label for="modelKeyInput">API Key（留空则继续使用已保存的密钥）</label>
+        <input id="modelKeyInput" type="password" placeholder="sk-...">
+        <p id="settingsHint" class="settings-hint"></p>
+        <div class="modal-actions">
+          <button id="closeSettingsBtn" type="button">取消</button>
+          <button id="saveSettingsBtn" class="primary" type="button">保存</button>
+        </div>
+        <p id="settingsError" class="error"></p>
+      </div>
+    </div>
   </div>
 
 <script src="/static/app.js"></script>

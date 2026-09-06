@@ -93,3 +93,44 @@ def load_session(path):
             return json.load(f)
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def search_sessions(query):
+    """按标题、模式或文件名过滤会话列表。"""
+    query = (query or "").strip().lower()
+    sessions = list_sessions()
+    if not query:
+        return sessions
+    return [
+        item
+        for item in sessions
+        if query in item.get("subject", "").lower()
+        or query in item.get("mode", "").lower()
+        or query in item.get("filename", "").lower()
+    ]
+
+
+def rename_session(path, new_subject):
+    """重命名会话标题，保留原内容与元信息。"""
+    new_subject = (new_subject or "").strip()
+    if not new_subject:
+        return False
+    data = load_session(path)
+    if not data:
+        return False
+    data["subject"] = new_subject
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return True
+    except OSError:
+        return False
+
+
+def delete_session(path):
+    """删除会话文件；调用方需先校验路径在会话目录内。"""
+    try:
+        os.remove(path)
+        return True
+    except OSError:
+        return False

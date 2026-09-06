@@ -81,13 +81,15 @@ While off-the-shelf AI chat tools are powerful, they cannot actively guide me th
 - **Adjustable explanation intensity:** Choose between more explanation, balanced, or more questioning to fit different study needs.
 - **E-book mode:** Import `.txt`, `.md`, `.pdf`, or `.epub` files, automatically split chapters by Markdown headings and the EPUB's original table of contents, then retrieve a chapter by keyword such as `Chapter 4`, `熵`, or `4`.
 - **Structure-preserving input:** EPUB, web, and PDF content is converted to Markdown with headings, lists, tables, and links before study.
-- **Flexible chapter granularity:** Choose automatic, large-chapter, or small-section splitting to match different reading needs.
+- **Flexible chapter granularity:** Choose automatic, large-chapter, or small-section splitting to match different reading needs, with a search-as-you-type chapter picker.
 - **Outline mode:** Start learning with only a topic and an outline when no e-book is available.
 - **Streaming responses:** The coach's replies appear word by word, just like a modern chat assistant.
+- **Regenerate replies:** Rework the latest coach reply with one click when the first attempt misses the mark.
 - **Structured summaries:** Generate a summary of mastered concepts, remaining weaknesses, counterexamples, and next-step review suggestions.
 - **Weak-point review:** Saved summaries are automatically loaded the next time the same chapter is studied.
 - **Unified review center:** All learning summaries are grouped by book in one place for later review and revision.
-- **Continue previous sessions:** Previously saved conversations can be reopened and continued from where they left off.
+- **Continue previous sessions:** Saved conversations can be searched, renamed, deleted, and reopened from where they left off.
+- **Multi-model support:** Pick DeepSeek, OpenAI, Zhipu GLM, Qwen, Kimi, SiliconFlow, or any OpenAI-compatible endpoint, and set the model name and API key from the in-app settings dialog.
 
 #### Usability and distribution
 
