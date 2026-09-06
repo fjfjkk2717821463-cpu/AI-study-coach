@@ -5,24 +5,44 @@ import re
 import ebooklib
 import PyPDF2
 import pdfplumber
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString, Tag
+from charset_normalizer import from_bytes
 from ebooklib import epub
 from markdownify import markdownify as html_to_md
 
+MAX_BOOK_BYTES = 50 * 1024 * 1024
+
+
+def _check_size(book_path):
+    try:
+        return os.path.getsize(book_path) <= MAX_BOOK_BYTES
+    except OSError:
+        return False
+
 
 def _read_text_file(book_path):
-    """按常见编码依次尝试读取文本文件。"""
-    encodings = ("utf-8", "utf-8-sig", "gb18030", "big5")
-    last_error = None
-    for encoding in encodings:
+    """检测编码后读取文本文件，避免 gb18030 兜底产生静默乱码。"""
+    try:
+        with open(book_path, "rb") as f:
+            data = f.read()
+    except OSError as exc:
+        return None, str(exc)
+    if not data:
+        return "", None
+
+    best = from_bytes(data).best()
+    if best is not None:
         try:
-            with open(book_path, "r", encoding=encoding) as f:
-                return f.read(), None
-        except UnicodeDecodeError as exc:
-            last_error = exc
-        except OSError as exc:
-            return None, str(exc)
-    return None, f"无法识别文件编码：{last_error}"
+            return str(best), None
+        except Exception:
+            pass
+
+    for encoding in ("utf-8-sig", "utf-8", "gb18030", "big5"):
+        try:
+            return data.decode(encoding), None
+        except UnicodeDecodeError:
+            continue
+    return None, "无法识别文件编码"
 
 
 def _html_to_markdown(html):
@@ -192,25 +212,38 @@ def _first_heading(soup):
 
 
 def _split_body_by_headings(body):
-    """把单个 EPUB 文档按 h1-h3 标题切分成多个小节。"""
-    headings = body.find_all(["h1", "h2", "h3"])
-    if not headings:
-        return [("", _element_text(body))]
-
+    """把单个 EPUB 文档按 h1-h3 标题切分成多个小节（递归遍历，兼容嵌套标签）。"""
     sections = []
-    for index, heading in enumerate(headings):
-        title = heading.get_text(" ", strip=True)
-        next_heading = headings[index + 1] if index + 1 < len(headings) else None
+    current_title = ""
+    current_parts = []
 
-        parts = []
-        node = heading.next_sibling
-        while node is not None and node is not next_heading:
-            if hasattr(node, "get_text"):
-                parts.append(node.get_text("\n"))
-            node = node.next_sibling
+    def flush():
+        nonlocal current_title, current_parts
+        if current_parts:
+            content = re.sub(r"\n{3,}", "\n\n", "\n".join(current_parts)).strip()
+            if content:
+                sections.append((current_title or "前言/引言", content))
+        current_title = ""
+        current_parts = []
 
-        content = re.sub(r"\n{3,}", "\n\n", "\n".join(parts)).strip()
-        sections.append((title, content))
+    def walk(node):
+        nonlocal current_title, current_parts
+        for child in node.children:
+            if isinstance(child, NavigableString):
+                text = str(child).strip()
+                if text:
+                    current_parts.append(text)
+            elif isinstance(child, Tag):
+                if child.name in ("h1", "h2", "h3"):
+                    flush()
+                    current_title = child.get_text(" ", strip=True)
+                else:
+                    walk(child)
+
+    walk(body)
+    flush()
+    if not sections:
+        return [("", _element_text(body))]
     return sections
 
 
@@ -368,6 +401,8 @@ def get_book_chapters(book_path, level="auto"):
     """统一入口：EPUB 按目录切分，其它格式按标题正则切分。"""
     if not os.path.exists(book_path):
         return None, "文件不存在"
+    if not _check_size(book_path):
+        return None, f"文件过大（超过 {MAX_BOOK_BYTES // (1024 * 1024)}MB），暂不支持。"
 
     if os.path.splitext(book_path)[1].lower() == ".epub":
         chapters, err = _extract_epub_chapters(book_path, level=level)
@@ -390,6 +425,8 @@ def load_book(book_path):
     """自动检测格式并提取全部文本，返回 (text, error)。"""
     if not os.path.exists(book_path):
         return None, "文件不存在"
+    if not _check_size(book_path):
+        return None, f"文件过大（超过 {MAX_BOOK_BYTES // (1024 * 1024)}MB），暂不支持。"
 
     ext = os.path.splitext(book_path)[1].lower()
     if ext in (".txt", ".md", ".markdown"):

@@ -24,3 +24,9 @@ DFL Coach（Deliberate Friction Learning Coach）· 使用说明
 
 五、数据保存位置
 - macOS：~/Library/Application Support/AiStudyCoach
+
+六、远程访问说明
+- 本机桌面使用无需密码。
+- 局域网手机访问：启动「手机访问.command」后会显示访问密码，在手机浏览器输入即可。
+- 云端部署：需要在服务端设置 APP_PASSWORD 环境变量作为访问密码。
+- 网页导入功能会拒绝访问本地、内网和保留地址，请填写公开网页地址。

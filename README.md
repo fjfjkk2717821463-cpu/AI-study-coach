@@ -104,7 +104,7 @@ While off-the-shelf AI chat tools are powerful, they cannot actively guide me th
 
 - **Conversation memory:** A growing `messages` list preserves the current session.
 - **Long-term memory:** Independent JSON summary files are keyed by book and chapter.
-- **Session persistence:** Conversations are automatically saved on exit and can be listed and resumed.
+- **Session persistence:** Conversations are automatically saved after every message and on exit, so a crash or restart never loses progress; saved sessions can be listed and resumed.
 - **Markdown conversion pipeline:** EPUB, web, and PDF content is converted to structure-preserving Markdown before chapter splitting and prompting.
 - **Book processing:** Automatic chapter splitting based on common heading patterns, EPUB table-of-contents-aware splitting, keyword-based chapter retrieval, multi-encoding `.txt` support, PDF extraction via `pdfplumber` with `PyPDF2` fallback, and EPUB extraction via `EbookLib` and `BeautifulSoup`.
 - **User data directory:** Bookshelf, summaries, sessions, and API keys are stored in the operating system's user data directory, making the app safe to package and distribute.
@@ -190,7 +190,7 @@ Windows:
 手机访问.bat
 ```
 
-Open the displayed address on a phone connected to the same Wi-Fi network, then use Safari or Chrome to add it to the home screen.
+Open the displayed address on a phone connected to the same Wi-Fi network, then use Safari or Chrome to add it to the home screen. The launch script also prints an access password; enter it on the phone. Local desktop use needs no password.
 
 ### Configure the API key
 
@@ -213,7 +213,8 @@ On Render, for example:
 2. Create a Render account and select "New → Blueprint."
 3. Choose the repository.
 4. Set the `DEEPSEEK_API_KEY` environment variable.
-5. Deploy.
+5. Set the `APP_PASSWORD` environment variable to a secret you choose. Remote access is refused without it, so strangers cannot use your API key or read your data.
+6. Deploy.
 
 After deployment, open the generated HTTPS URL on any phone or computer. On iPhone, use Safari's "Add to Home Screen" for an app-like experience.
 
@@ -262,6 +263,16 @@ If you also experience knowledge anxiety, or want to build a learning tool that 
 - **Tech Stack:** Python + DeepSeek API
 - **Deployment:** macOS, Windows, Web, Docker-compatible cloud platforms
 - **Interfaces:** Desktop app, responsive web app, mobile browser
+
+---
+
+## Security
+
+- Local desktop use runs on `127.0.0.1` and needs no password.
+- LAN and cloud access require a password (`APP_PASSWORD` or an auto-generated local password printed by the launch script).
+- Book and session file paths are validated against the app's data directory, so remote requests cannot read arbitrary files.
+- Web-page import rejects local, private, and reserved addresses, and limits page size.
+- Markdown from the model is sanitized before rendering to prevent injected scripts.
 
 ---
 

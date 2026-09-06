@@ -15,17 +15,20 @@ def _sanitize_filename(name):
     return name[:60] or "untitled"
 
 
-def save_session(mode, subject, history, meta=None):
-    """把本次学习对话保存为 JSON 记录，避免退出后历史丢失。"""
-    if not history:
-        return ""
-
+def new_session_path(mode, subject):
+    """生成一个新会话文件的路径（不写文件）。"""
     os.makedirs(SESSIONS_DIR, exist_ok=True)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     safe_subject = _sanitize_filename(subject)
     filename = f"{mode}_{safe_subject}_{timestamp}.json"
-    path = os.path.join(SESSIONS_DIR, filename)
+    return os.path.join(SESSIONS_DIR, filename)
 
+
+def write_session(path, mode, subject, history, meta=None):
+    """把会话内容写入指定路径，用于自动保存和覆盖更新。"""
+    if not history:
+        return ""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(
             {
@@ -40,6 +43,14 @@ def save_session(mode, subject, history, meta=None):
             indent=2,
         )
     return path
+
+
+def save_session(mode, subject, history, meta=None):
+    """把本次学习对话保存为新 JSON 记录，避免退出后历史丢失。"""
+    if not history:
+        return ""
+    path = new_session_path(mode, subject)
+    return write_session(path, mode, subject, history, meta)
 
 
 def list_sessions():

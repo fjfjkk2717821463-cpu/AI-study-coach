@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 · DFL Coach</title>
+  <style>
+    :root { --accent: #4f46e5; --border: #e3e6ea; --muted: #6b7280; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f6f7f9;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+    }
+    .card {
+      width: min(420px, 92vw);
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 28px;
+    }
+    h1 { font-size: 22px; margin: 0 0 8px; }
+    p { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0 0 16px; }
+    label { display: block; font-size: 14px; margin-bottom: 6px; }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 15px;
+      margin-bottom: 14px;
+    }
+    button {
+      width: 100%;
+      padding: 11px;
+      border: 0;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 15px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.6; cursor: default; }
+    .error { color: #b91c1c; font-size: 14px; margin-top: 12px; min-height: 20px; }
+    .ok { color: #15803d; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🔒 登录 DFL Coach</h1>
+    <p>远程访问需要密码。密码由部署者设置（云端为 APP_PASSWORD 环境变量，局域网模式在启动脚本中显示）。</p>
+    <label for="passwordInput">访问密码</label>
+    <input id="passwordInput" type="password" placeholder="请输入访问密码" autocomplete="off">
+    <button id="loginBtn" type="button">登录</button>
+    <p id="message" class="error"></p>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    $("loginBtn").addEventListener("click", async () => {
+      const password = $("passwordInput").value.trim();
+      if (!password) {
+        $("message").className = "error";
+        $("message").textContent = "请输入密码。";
+        return;
+      }
+      $("loginBtn").disabled = true;
+      $("message").textContent = "";
+      try {
+        const resp = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          $("message").className = "error";
+          $("message").textContent = data.error || "登录失败。";
+          return;
+        }
+        location.reload();
+      } catch (err) {
+        $("message").className = "error";
+        $("message").textContent = "登录失败：" + err.message;
+      } finally {
+        $("loginBtn").disabled = false;
+      }
+    });
+    $("passwordInput").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") $("loginBtn").click();
+    });
+  </script>
+</body>
+</html>

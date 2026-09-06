@@ -21,6 +21,8 @@ echo "正在生成 macOS 应用，请稍候……"
   --clean \
   --windowed \
   --name "DFL Coach" \
+  --add-data "templates:templates" \
+  --add-data "static:static" \
   --collect-all webview \
   --distpath "打包产物/app" \
   --workpath "打包产物/build" \

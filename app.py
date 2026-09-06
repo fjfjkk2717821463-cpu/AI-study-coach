@@ -1,12 +1,21 @@
 # app.py
+import hmac
+import ipaddress
 import json
 import os
 import re
+import secrets
+import socket
+import sys
+import time
 import uuid
+import urllib.parse
 
+import bleach
 import markdown
 import requests
-from flask import Flask, Response, jsonify, render_template_string, request, stream_with_context
+from charset_normalizer import from_bytes
+from flask import Flask, Response, jsonify, render_template, request, session, stream_with_context
 from bs4 import BeautifulSoup
 from markdownify import markdownify as html_to_md
 
@@ -17,8 +26,19 @@ import coach_v4
 import session_mgr
 import summary_mgr
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    BASE_DIR = sys._MEIPASS
+
+app = Flask(
+    __name__,
+    template_folder=os.path.join(BASE_DIR, "templates"),
+    static_folder=os.path.join(BASE_DIR, "static"),
+)
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024
+
+WEB_MAX_BYTES = 5 * 1024 * 1024
+SESSION_TTL_SECONDS = 12 * 3600
 
 BOOKS_DIR = os.path.join(app_paths.get_data_dir(), "books")
 os.makedirs(BOOKS_DIR, exist_ok=True)
@@ -27,10 +47,185 @@ os.makedirs(BOOKS_DIR, exist_ok=True)
 SESSIONS = {}
 
 
+def _read_or_create_file(path, factory):
+    """读取一个持久化的小文件；不存在时生成并写入。"""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            value = f.read().strip()
+            if value:
+                return value
+    except OSError:
+        pass
+    value = factory()
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(value + "\n")
+    except OSError:
+        pass
+    return value
+
+
+def _get_secret_key():
+    return _read_or_create_file(
+        os.path.join(app_paths.get_data_dir(), ".secret_key"),
+        lambda: uuid.uuid4().hex,
+    )
+
+
+def _get_app_password():
+    """远程访问密码：优先环境变量，否则在本机数据目录生成并持久化。"""
+    env_password = os.environ.get("APP_PASSWORD", "").strip()
+    if env_password:
+        return env_password
+    return _read_or_create_file(
+        os.path.join(app_paths.get_data_dir(), ".app_password"),
+        lambda: secrets.token_urlsafe(9),
+    )
+
+
+app.secret_key = _get_secret_key()
+
+
+def _is_loopback():
+    return request.remote_addr in ("127.0.0.1", "::1")
+
+
+@app.before_request
+def _require_auth_for_remote():
+    """本机访问免密；局域网/云端访问需要密码（登录 Cookie 或 Bearer Token）。"""
+    if _is_loopback():
+        return None
+    if request.path in ("/login", "/api/login"):
+        return None
+    if session.get("authed") is True:
+        return None
+
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer ") and hmac.compare_digest(
+        auth[7:].strip(), _get_app_password()
+    ):
+        return None
+
+    if request.path.startswith("/api/"):
+        return _json_error("未登录或密码错误。", 401)
+    return render_template("login.html"), 200
+
+
+def _is_within(root, path):
+    try:
+        root_real = os.path.realpath(root)
+        path_real = os.path.realpath(path)
+    except OSError:
+        return False
+    return path_real.startswith(root_real + os.sep)
+
+
+def _valid_book_path(path):
+    return bool(path) and _is_within(BOOKS_DIR, path) and os.path.isfile(path)
+
+
+def _valid_session_path(path):
+    return (
+        bool(path)
+        and _is_within(session_mgr.SESSIONS_DIR, path)
+        and path.lower().endswith(".json")
+    )
+
+
+def _sweep_sessions():
+    """清理长时间无活动的内存会话，避免长期运行内存膨胀。"""
+    now = time.time()
+    stale = [
+        session_id
+        for session_id, item in SESSIONS.items()
+        if now - item.get("last_active", 0) > SESSION_TTL_SECONDS
+    ]
+    for session_id in stale:
+        SESSIONS.pop(session_id, None)
+
+
+def _persist_session(item):
+    """把会话写入磁盘：每条消息后自动保存，崩溃也不丢进度。"""
+    save_path = item.get("save_path")
+    if not save_path or not item.get("history"):
+        return ""
+    mode_label = "电子书" if item["mode"] == "book" else "目录速建"
+    meta = {
+        "mode": item["mode"],
+        "book_name": item.get("book_name", ""),
+        "book_path": item.get("book_path", ""),
+        "system_prompt": item["system_prompt"],
+        "explain_level": item.get("explain_level", "medium"),
+    }
+    return session_mgr.write_session(
+        save_path, mode_label, item["subject"], item["history"], meta
+    )
+
+
+def _is_public_url(url):
+    """判断 URL 是否可安全抓取：拒绝本地、内网、链路本地和保留地址。"""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return False
+    try:
+        ip = ipaddress.ip_address(parsed.hostname)
+    except ValueError:
+        ip = None
+    if ip is not None:
+        return not (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        )
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        infos = socket.getaddrinfo(parsed.hostname, port, proto=socket.IPPROTO_TCP)
+    except OSError:
+        return False
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
+        if (
+            addr.is_private
+            or addr.is_loopback
+            or addr.is_link_local
+            or addr.is_reserved
+            or addr.is_multicast
+            or addr.is_unspecified
+        ):
+            return False
+    return True
+
+
+ALLOWED_TAGS = {
+    "h1", "h2", "h3", "h4", "h5", "h6", "p", "br", "hr",
+    "strong", "b", "em", "i", "u", "s", "del", "code", "pre", "blockquote",
+    "ul", "ol", "li", "table", "thead", "tbody", "tr", "th", "td", "a", "img",
+}
+ALLOWED_ATTRIBUTES = {
+    "a": ["href", "title"],
+    "img": ["src", "alt", "title"],
+    "th": ["align"],
+    "td": ["align"],
+}
+
+
 def _markdown_to_html(text):
-    return markdown.markdown(
+    raw_html = markdown.markdown(
         text or "",
         extensions=["extra", "sane_lists"],
+    )
+    return bleach.clean(
+        raw_html,
+        tags=ALLOWED_TAGS,
+        attributes=ALLOWED_ATTRIBUTES,
+        protocols=["http", "https", "mailto"],
+        strip=True,
     )
 
 
@@ -57,6 +252,9 @@ def _save_api_key(key):
 
 def _fetch_web_text(url):
     """抓取网页并提取标题与 Markdown 正文。"""
+    if not _is_public_url(url):
+        raise ValueError("不允许访问本地、内网或保留地址。")
+
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -64,13 +262,43 @@ def _fetch_web_text(url):
             "Chrome/124.0 Safari/537.36"
         )
     }
-    resp = requests.get(url, headers=headers, timeout=20)
+    resp = requests.get(
+        url,
+        headers=headers,
+        timeout=20,
+        stream=True,
+        allow_redirects=False,
+    )
+    if resp.status_code in (301, 302, 303, 307, 308):
+        resp.close()
+        raise ValueError("该地址发生了跳转，请直接填写最终网址。")
     resp.raise_for_status()
 
-    if not resp.encoding or resp.encoding.lower() in ("iso-8859-1", "ascii"):
-        resp.encoding = resp.apparent_encoding
+    chunks = []
+    total = 0
+    try:
+        for chunk in resp.iter_content(chunk_size=65536):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > WEB_MAX_BYTES:
+                raise ValueError("网页内容过大（超过 5MB），暂不支持导入。")
+            chunks.append(chunk)
+    finally:
+        resp.close()
 
-    soup = BeautifulSoup(resp.text, "html.parser")
+    body_bytes = b"".join(chunks)
+    text = None
+    if resp.encoding and resp.encoding.lower() not in ("iso-8859-1", "ascii"):
+        try:
+            text = body_bytes.decode(resp.encoding, errors="replace")
+        except (LookupError, UnicodeDecodeError):
+            text = None
+    if text is None:
+        best = from_bytes(body_bytes).best()
+        text = body_bytes.decode(best.encoding if best else "utf-8", errors="replace")
+
+    soup = BeautifulSoup(text, "html.parser")
     title = ""
     if soup.title:
         title = soup.title.get_text(" ", strip=True)
@@ -95,8 +323,25 @@ def _fetch_web_text(url):
 @app.get("/")
 def index():
     if not coach_v4.load_api_key():
-        return CONFIG_PAGE
-    return HTML_PAGE
+        return render_template("setup.html")
+    return render_template("index.html")
+
+
+@app.get("/login")
+def login_page():
+    if _is_loopback():
+        return index()
+    return render_template("login.html")
+
+
+@app.post("/api/login")
+def api_login():
+    data = request.get_json(silent=True) or {}
+    password = (data.get("password") or "").strip()
+    if not password or not hmac.compare_digest(password, _get_app_password()):
+        return _json_error("密码错误。", 401)
+    session["authed"] = True
+    return jsonify({"ok": True})
 
 
 @app.get("/api/config")
@@ -143,6 +388,15 @@ def api_shelf_add():
         file.save(stored_path)
     except OSError as exc:
         return _json_error(f"保存文件失败：{exc}", 500)
+
+    if os.path.getsize(stored_path) > book_utils.MAX_BOOK_BYTES:
+        try:
+            os.remove(stored_path)
+        except OSError:
+            pass
+        return _json_error(
+            f"文件过大（超过 {book_utils.MAX_BOOK_BYTES // (1024 * 1024)}MB），暂不支持。"
+        )
 
     text, err = book_utils.load_book(stored_path)
     if err:
@@ -204,7 +458,10 @@ def api_sessions():
 @app.post("/api/session/resume")
 def api_session_resume():
     data = request.get_json(silent=True) or {}
-    saved = session_mgr.load_session(data.get("id"))
+    session_path = (data.get("id") or "").strip()
+    if not _valid_session_path(session_path):
+        return _json_error("会话不存在或已损坏。", 404)
+    saved = session_mgr.load_session(session_path)
     if not saved:
         return _json_error("会话不存在或已损坏。", 404)
 
@@ -222,6 +479,8 @@ def api_session_resume():
         "subject": saved.get("subject", ""),
         "system_prompt": system_prompt,
         "history": history,
+        "save_path": session_path,
+        "last_active": time.time(),
     }
 
     messages = []
@@ -257,8 +516,10 @@ def api_summaries():
 def api_books_chapters():
     data = request.get_json(silent=True) or {}
     book_path = (data.get("path") or "").strip()
-    if not book_path or not os.path.exists(book_path):
+    if not _valid_book_path(book_path):
         return _json_error("书籍文件不存在，请回到书架重新添加。")
+    if os.path.getsize(book_path) > book_utils.MAX_BOOK_BYTES:
+        return _json_error("文件过大，无法加载。")
 
     level = data.get("level") or "auto"
     if level not in ("auto", "chapter", "section"):
@@ -280,6 +541,7 @@ def api_books_chapters():
 
 @app.post("/api/session/start")
 def api_session_start():
+    _sweep_sessions()
     data = request.get_json(silent=True) or {}
     mode = data.get("mode")
     session_id = str(uuid.uuid4())
@@ -294,8 +556,10 @@ def api_session_start():
         explain_level = data.get("explain_level") or "medium"
         if explain_level not in ("low", "medium", "high"):
             explain_level = "medium"
-        if not book_path or not os.path.exists(book_path):
+        if not _valid_book_path(book_path):
             return _json_error("书籍文件不存在，请回到书架重新添加。")
+        if os.path.getsize(book_path) > book_utils.MAX_BOOK_BYTES:
+            return _json_error("文件过大，无法加载。")
 
         chapters, err = book_utils.get_book_chapters(book_path, level=level)
         if err:
@@ -332,6 +596,8 @@ def api_session_start():
             "system_prompt": system_prompt,
             "explain_level": explain_level,
             "history": [],
+            "save_path": session_mgr.new_session_path("电子书", chapter_title),
+            "last_active": time.time(),
         }
         return jsonify(
             {
@@ -374,6 +640,8 @@ def api_session_start():
             "system_prompt": system_prompt,
             "explain_level": explain_level,
             "history": [],
+            "save_path": session_mgr.new_session_path("目录速建", outline_title),
+            "last_active": time.time(),
         }
         return jsonify(
             {
@@ -394,6 +662,7 @@ def api_chat():
     session = SESSIONS.get(data.get("session_id"))
     if not session:
         return _json_error("学习会话不存在或已结束，请重新开始。", 404)
+    session["last_active"] = time.time()
 
     message = (data.get("message") or "").strip()
     if not message:
@@ -411,6 +680,7 @@ def api_chat():
 
     session["history"].append({"role": "user", "content": message})
     session["history"].append({"role": "assistant", "content": reply})
+    _persist_session(session)
     return jsonify({"reply": reply, "html": _markdown_to_html(reply)})
 
 
@@ -420,6 +690,7 @@ def api_chat_stream():
     session = SESSIONS.get(data.get("session_id"))
     if not session:
         return _json_error("学习会话不存在或已结束，请重新开始。", 404)
+    session["last_active"] = time.time()
 
     message = (data.get("message") or "").strip()
     if not message:
@@ -440,6 +711,7 @@ def api_chat_stream():
             full_text = "".join(parts)
             session["history"].append({"role": "user", "content": message})
             session["history"].append({"role": "assistant", "content": full_text})
+            _persist_session(session)
             yield _sse({"done": True, "html": _markdown_to_html(full_text)})
         except Exception as exc:
             yield _sse({"error": str(exc)})
@@ -456,6 +728,7 @@ def api_summary():
     session = SESSIONS.get(data.get("session_id"))
     if not session:
         return _json_error("学习会话不存在或已结束，请重新开始。", 404)
+    session["last_active"] = time.time()
 
     summary_prompt = """请基于本次完整对话，生成一份结构化学习总结，包含：
 1. 已掌握的核心概念
@@ -478,6 +751,7 @@ def api_summary():
         summary_mgr.save_summary(session["book_name"], session["subject"], summary)
     else:
         summary_mgr.save_summary("目录速建", session["subject"], summary)
+    _persist_session(session)
 
     return jsonify({"summary": summary, "html": _markdown_to_html(summary)})
 
@@ -489,1020 +763,10 @@ def api_session_end():
     if not session:
         return _json_error("学习会话不存在或已结束。", 404)
 
-    if session["history"]:
-        mode_label = "电子书" if session["mode"] == "book" else "目录速建"
-        meta = {
-            "mode": session["mode"],
-            "book_name": session.get("book_name", ""),
-            "book_path": session.get("book_path", ""),
-            "system_prompt": session["system_prompt"],
-        }
-        session_mgr.save_session(
-            mode_label, session["subject"], session["history"], meta
-        )
+    _persist_session(session)
     return jsonify({"ok": True})
 
 
-CONFIG_PAGE = r"""<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>设置 API Key</title>
-  <style>
-    :root { --accent: #4f46e5; --border: #e3e6ea; --muted: #6b7280; }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-        "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-      background: #f6f7f9;
-      color: #1f2328;
-    }
-    .card {
-      width: 100%;
-      max-width: 460px;
-      background: #fff;
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 26px;
-    }
-    h1 { font-size: 22px; margin: 0 0 8px; }
-    p { color: var(--muted); line-height: 1.7; margin: 0 0 18px; }
-    label { display: block; margin-bottom: 7px; font-weight: 600; }
-    input {
-      width: 100%;
-      padding: 11px 12px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      font-size: 15px;
-      font-family: inherit;
-    }
-    button {
-      margin-top: 14px;
-      width: 100%;
-      padding: 11px 16px;
-      border: 0;
-      border-radius: 10px;
-      background: var(--accent);
-      color: #fff;
-      font-size: 15px;
-      cursor: pointer;
-    }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .error { color: #b91c1c; margin-top: 10px; font-size: 14px; }
-    .ok { color: #15803d; margin-top: 10px; font-size: 14px; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>设置 DeepSeek API Key</h1>
-    <p>请粘贴你的 DeepSeek API Key，它会保存在本地，仅用于这个学习教练，不会上传到其它地方。</p>
-    <label for="apiKeyInput">API Key</label>
-    <input id="apiKeyInput" type="password" placeholder="sk-..." autocomplete="off">
-    <button id="saveBtn" type="button">保存并开始使用</button>
-    <p id="message" class="error"></p>
-  </div>
-
-  <script>
-    const $ = (id) => document.getElementById(id);
-    $("saveBtn").addEventListener("click", async () => {
-      const key = $("apiKeyInput").value.trim();
-      if (!key) {
-        $("message").className = "error";
-        $("message").textContent = "请输入 API Key。";
-        return;
-      }
-      $("saveBtn").disabled = true;
-      $("message").textContent = "";
-      try {
-        const resp = await fetch("/api/config", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ api_key: key }),
-        });
-        const data = await resp.json();
-        if (!resp.ok) {
-          $("message").className = "error";
-          $("message").textContent = data.error || "保存失败。";
-          return;
-        }
-        $("message").className = "ok";
-        $("message").textContent = "已保存，正在进入……";
-        location.reload();
-      } catch (err) {
-        $("message").className = "error";
-        $("message").textContent = "保存失败：" + err.message;
-      } finally {
-        $("saveBtn").disabled = false;
-      }
-    });
-  </script>
-</body>
-</html>
-"""
-
-
-HTML_PAGE = r"""<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DFL Coach</title>
-  <style>
-    :root {
-      --bg: #f6f7f9;
-      --card: #ffffff;
-      --text: #1f2328;
-      --muted: #6b7280;
-      --border: #e3e6ea;
-      --accent: #4f46e5;
-      --accent-hover: #4338ca;
-      --user-bubble: #eef2ff;
-      --assistant-bubble: #ffffff;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-        "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.7;
-    }
-    .app { max-width: 960px; margin: 0 auto; padding: 28px 16px 60px; }
-    header { margin-bottom: 22px; }
-    h1 { font-size: 28px; margin: 0 0 6px; }
-    .sub { color: var(--muted); margin: 0; }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 20px;
-      margin-bottom: 20px;
-    }
-    .tabs { display: flex; gap: 8px; margin-bottom: 18px; }
-    .common-row { margin-bottom: 10px; }
-    .common-row label { margin-top: 0; }
-    .tabs button {
-      flex: 1;
-      padding: 10px 12px;
-      border: 1px solid var(--border);
-      background: #fff;
-      border-radius: 10px;
-      cursor: pointer;
-      font-size: 15px;
-    }
-    .tabs button.active {
-      background: var(--accent);
-      color: #fff;
-      border-color: var(--accent);
-    }
-    label { display: block; margin: 14px 0 6px; font-weight: 600; font-size: 14px; }
-    input, select, textarea {
-      width: 100%;
-      padding: 10px 12px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      font-size: 15px;
-      font-family: inherit;
-      background: #fff;
-    }
-    textarea { min-height: 130px; resize: vertical; }
-    .hidden { display: none !important; }
-    button.primary {
-      margin-top: 18px;
-      padding: 11px 18px;
-      background: var(--accent);
-      color: #fff;
-      border: 0;
-      border-radius: 10px;
-      font-size: 15px;
-      cursor: pointer;
-    }
-    button.primary:hover { background: var(--accent-hover); }
-    button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
-    .error { color: #b91c1c; margin-top: 12px; font-size: 14px; }
-    .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
-
-    #chatSection { display: flex; flex-direction: column; }
-    #messages { min-height: 320px; max-height: 62vh; overflow-y: auto; padding: 6px 2px; }
-    .msg { margin-bottom: 18px; }
-    .msg .role {
-      font-size: 12px;
-      color: var(--muted);
-      margin-bottom: 6px;
-      font-weight: 600;
-    }
-    .msg .bubble {
-      padding: 12px 14px;
-      border-radius: 12px;
-      background: var(--assistant-bubble);
-      border: 1px solid var(--border);
-      overflow-wrap: anywhere;
-    }
-    .msg.user .bubble { background: var(--user-bubble); border-color: #dfe5ff; }
-    .bubble > :first-child { margin-top: 0; }
-    .bubble > :last-child { margin-bottom: 0; }
-    .bubble pre {
-      background: #0f172a;
-      color: #e2e8f0;
-      padding: 12px;
-      border-radius: 10px;
-      overflow-x: auto;
-    }
-    .bubble code {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 0.9em;
-    }
-    .bubble p code, .bubble li code {
-      background: #eef1f5;
-      padding: 1px 5px;
-      border-radius: 5px;
-    }
-    .bubble blockquote {
-      border-left: 3px solid var(--accent);
-      margin: 0;
-      padding: 4px 12px;
-      color: var(--muted);
-      background: #f8f9fb;
-      border-radius: 0 8px 8px 0;
-    }
-    .bubble table { border-collapse: collapse; width: 100%; }
-    .bubble th, .bubble td { border: 1px solid var(--border); padding: 7px 9px; text-align: left; }
-    .composer {
-      display: flex;
-      gap: 10px;
-      align-items: flex-end;
-      border-top: 1px solid var(--border);
-      padding-top: 14px;
-      margin-top: 6px;
-    }
-    .composer textarea { flex: 1; min-height: 52px; max-height: 180px; }
-    .composer button { padding: 10px 18px; white-space: nowrap; }
-    .actions { display: flex; gap: 10px; margin-top: 12px; }
-    .actions button {
-      padding: 9px 14px;
-      border: 1px solid var(--border);
-      background: #fff;
-      border-radius: 10px;
-      cursor: pointer;
-      font-size: 14px;
-    }
-    .summary-note {
-      background: #fff7ed;
-      border-color: #fed7aa;
-    }
-    .header-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
-    .header-actions button {
-      padding: 8px 12px;
-      border: 1px solid var(--border);
-      background: #fff;
-      border-radius: 10px;
-      cursor: pointer;
-      font-size: 14px;
-    }
-    .back-row { margin-bottom: 16px; }
-    .back-row button {
-      padding: 7px 12px;
-      border: 1px solid var(--border);
-      background: #fff;
-      border-radius: 10px;
-      cursor: pointer;
-      font-size: 14px;
-    }
-    .book-group { margin-bottom: 22px; }
-    .book-group h3 { margin: 0 0 10px; }
-    .summary-item {
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      margin-bottom: 8px;
-      background: #fff;
-    }
-    .summary-item summary {
-      cursor: pointer;
-      padding: 10px 12px;
-      font-weight: 600;
-      list-style: none;
-    }
-    .summary-item summary::-webkit-details-marker { display: none; }
-    .summary-item .summary-body { padding: 0 12px 12px; }
-    .shelf-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 10px 12px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      margin-bottom: 8px;
-      background: #fff;
-    }
-    .shelf-row .shelf-name { font-weight: 600; word-break: break-all; }
-    .shelf-row .shelf-path { color: var(--muted); font-size: 12px; word-break: break-all; }
-    .shelf-row button {
-      flex: 0 0 auto;
-      padding: 6px 10px;
-      border: 1px solid var(--border);
-      background: #fff;
-      border-radius: 8px;
-      cursor: pointer;
-      color: #b91c1c;
-    }
-    .add-book { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 16px; }
-    .web-import { margin-top: 0; border-top: 0; padding-top: 0; }
-    .empty-hint { color: var(--muted); font-size: 14px; }
-    @media (max-width: 640px) {
-      .app { padding: 16px 10px 40px; }
-      h1 { font-size: 24px; }
-      .card { padding: 16px; }
-      .header-actions { gap: 8px; }
-      .header-actions button { flex: 1 1 auto; font-size: 13px; padding: 8px 6px; }
-      input, select, textarea { font-size: 16px; }
-      .composer { flex-direction: column; align-items: stretch; }
-      .composer textarea { min-height: 48px; }
-      .composer button { width: 100%; }
-      .actions { flex-wrap: wrap; }
-      .actions button { flex: 1 1 auto; }
-      .shelf-row { flex-direction: column; align-items: stretch; }
-      .shelf-row button { width: 100%; }
-    }
-  </style>
-</head>
-<body>
-  <div class="app">
-    <header>
-      <h1>📚 DFL Coach</h1>
-      <p class="sub">先带你准确学懂一个概念，再用费曼式复述、反例和默写重构来检测巩固，而不是只「看懂了」。</p>
-      <div class="header-actions">
-        <button id="historyBtn" type="button">🕘 继续上次学习</button>
-        <button id="reviewBtn" type="button">📚 复习所有总结</button>
-        <button id="shelfBtn" type="button">📖 管理书架</button>
-      </div>
-    </header>
-
-    <section id="setup" class="card">
-      <div class="tabs">
-        <button id="bookTab" class="active" type="button">电子书模式</button>
-        <button id="outlineTab" type="button">目录速建模式</button>
-      </div>
-
-      <div class="common-row">
-        <label for="explainLevel">讲解强度</label>
-        <select id="explainLevel">
-          <option value="high" selected>多讲解（先教再问）</option>
-          <option value="medium">适中（讲解与追问并重）</option>
-          <option value="low">少讲解（以追问为主）</option>
-        </select>
-      </div>
-
-      <div id="bookSetup">
-        <label for="bookSelect">选择书架上的书籍</label>
-        <select id="bookSelect"></select>
-        <label for="chapterSelect">选择章节</label>
-        <select id="chapterSelect"></select>
-        <label for="chapterLevel">章节层级</label>
-        <select id="chapterLevel">
-          <option value="auto" selected>自动（推荐）</option>
-          <option value="chapter">大章节</option>
-          <option value="section">小章节</option>
-        </select>
-        <label for="chapterQuery">或输入章节关键词</label>
-        <input id="chapterQuery" placeholder="例如：第四章 / 熵 / 4；留空则使用下拉选中的章节">
-        <p class="hint">还没有书籍？点击上方「📖 管理书架」，直接导入 .txt / .md / .pdf / .epub 或网页链接。</p>
-      </div>
-
-      <div id="outlineSetup" class="hidden">
-        <label for="outlineTitle">学习主题 / 章节标题</label>
-        <input id="outlineTitle" placeholder="例如：热力学第二定律">
-        <label for="outlineContent">章节目录或内容要点</label>
-        <textarea id="outlineContent" placeholder="粘贴目录、大纲或你要掌握的知识点"></textarea>
-      </div>
-
-      <button id="startBtn" class="primary" type="button">开始学习</button>
-      <p id="setupError" class="error"></p>
-    </section>
-
-    <section id="bookshelfSection" class="card hidden">
-      <div class="back-row">
-        <button id="bookshelfBackBtn" type="button">← 返回开始学习</button>
-      </div>
-      <h2>📖 管理书架</h2>
-      <p class="hint">直接导入 .txt、.md、.pdf 或 .epub 书籍，文件会复制到本机数据目录中。</p>
-      <div id="shelfList"></div>
-      <div class="add-book">
-        <label for="bookFileInput">选择书籍文件</label>
-        <input id="bookFileInput" type="file" accept=".txt,.md,.pdf,.epub">
-        <label for="bookNameInput">书籍名称（可选）</label>
-        <input id="bookNameInput" placeholder="留空则使用文件名">
-        <button id="addBookBtn" class="primary" type="button">添加到书架</button>
-      </div>
-      <div class="add-book web-import">
-        <label for="webUrlInput">或从网页导入</label>
-        <input id="webUrlInput" placeholder="https://example.com/article">
-        <input id="webNameInput" placeholder="名称（可选，默认使用网页标题）">
-        <button id="importWebBtn" class="primary" type="button">导入网页</button>
-      </div>
-      <p id="shelfError" class="error"></p>
-    </section>
-
-    <section id="historySection" class="card hidden">
-      <div class="back-row">
-        <button id="historyBackBtn" type="button">← 返回开始学习</button>
-      </div>
-      <h2>🕘 继续上次学习</h2>
-      <p class="hint">选择一次已保存的会话继续。</p>
-      <select id="sessionSelect"></select>
-      <button id="resumeBtn" class="primary" type="button">继续学习</button>
-      <p id="historyError" class="error"></p>
-    </section>
-
-    <section id="reviewSection" class="card hidden">
-      <div class="back-row">
-        <button id="reviewBackBtn" type="button">← 返回开始学习</button>
-      </div>
-      <h2>📚 学习总结复习中心</h2>
-      <div id="reviewContent"></div>
-    </section>
-
-    <section id="chatSection" class="card hidden">
-      <div id="messages"></div>
-      <div class="composer">
-        <textarea id="messageInput" placeholder="输入你的理解，教练会追问、给反例、检查逻辑……"></textarea>
-        <button id="sendBtn" class="primary" type="button">发送</button>
-      </div>
-      <div class="actions">
-        <button id="summaryBtn" type="button">生成总结</button>
-        <button id="endBtn" type="button">结束并保存会话</button>
-      </div>
-    </section>
-  </div>
-
-  <script>
-    let mode = "book";
-    let sessionId = null;
-
-    const $ = (id) => document.getElementById(id);
-
-    function escapeHtml(text) {
-      const div = document.createElement("div");
-      div.textContent = text == null ? "" : String(text);
-      return div.innerHTML;
-    }
-
-    function showSection(name) {
-      ["setup", "chatSection", "bookshelfSection", "historySection", "reviewSection"].forEach((id) => {
-        $(id).classList.toggle("hidden", id !== name);
-      });
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
-
-    $("historyBtn").addEventListener("click", async () => {
-      showSection("historySection");
-      $("historyError").textContent = "";
-      await loadSessions();
-    });
-
-    $("reviewBtn").addEventListener("click", async () => {
-      showSection("reviewSection");
-      await loadReview();
-    });
-
-    $("shelfBtn").addEventListener("click", async () => {
-      showSection("bookshelfSection");
-      $("shelfError").textContent = "";
-      await loadShelfList();
-    });
-
-    $("historyBackBtn").addEventListener("click", () => showSection("setup"));
-    $("reviewBackBtn").addEventListener("click", () => showSection("setup"));
-    $("bookshelfBackBtn").addEventListener("click", () => showSection("setup"));
-
-    function switchMode(nextMode) {
-      mode = nextMode;
-      $("bookTab").classList.toggle("active", mode === "book");
-      $("outlineTab").classList.toggle("active", mode === "outline");
-      $("bookSetup").classList.toggle("hidden", mode !== "book");
-      $("outlineSetup").classList.toggle("hidden", mode !== "outline");
-      $("setupError").textContent = "";
-    }
-
-    $("bookTab").addEventListener("click", () => switchMode("book"));
-    $("outlineTab").addEventListener("click", () => switchMode("outline"));
-
-    async function loadShelf() {
-      try {
-        const resp = await fetch("/api/shelf");
-        const books = await resp.json();
-        const select = $("bookSelect");
-        select.innerHTML = "";
-        if (!books.length) {
-          const opt = document.createElement("option");
-          opt.textContent = "书架为空，请先添加书籍";
-          opt.disabled = true;
-          select.appendChild(opt);
-          return;
-        }
-        books.forEach((book) => {
-          const opt = document.createElement("option");
-          opt.value = JSON.stringify({ name: book.name, path: book.path });
-          opt.textContent = book.name;
-          select.appendChild(opt);
-        });
-        loadChapters(JSON.parse(select.value).path);
-      } catch (err) {
-        $("setupError").textContent = "读取书架失败：" + err.message;
-      }
-    }
-
-    async function loadShelfList() {
-      const list = $("shelfList");
-      list.innerHTML = "";
-      try {
-        const resp = await fetch("/api/shelf");
-        const books = await resp.json();
-        if (!books.length) {
-          list.innerHTML = '<p class="empty-hint">书架还是空的，请在下方导入书籍。</p>';
-          return;
-        }
-        books.forEach((book) => {
-          const row = document.createElement("div");
-          row.className = "shelf-row";
-          const info = document.createElement("div");
-          info.innerHTML =
-            '<div class="shelf-name"></div><div class="shelf-path"></div>';
-          info.querySelector(".shelf-name").textContent = book.name;
-          info.querySelector(".shelf-path").textContent = book.path;
-          const remove = document.createElement("button");
-          remove.type = "button";
-          remove.textContent = "移除";
-          remove.addEventListener("click", () => removeBook(book.path));
-          row.appendChild(info);
-          row.appendChild(remove);
-          list.appendChild(row);
-        });
-      } catch (err) {
-        $("shelfError").textContent = "读取书架失败：" + err.message;
-      }
-    }
-
-    async function addBook() {
-      const fileInput = $("bookFileInput");
-      const nameInput = $("bookNameInput");
-      if (!fileInput.files.length) {
-        $("shelfError").textContent = "请先选择要导入的文件。";
-        return;
-      }
-      const formData = new FormData();
-      formData.append("file", fileInput.files[0]);
-      formData.append("name", nameInput.value.trim());
-      $("addBookBtn").disabled = true;
-      $("shelfError").textContent = "正在导入，请稍候……";
-      try {
-        const resp = await fetch("/api/shelf", {
-          method: "POST",
-          body: formData,
-        });
-        const data = await resp.json();
-        if (!resp.ok) {
-          $("shelfError").textContent = data.error || "导入失败。";
-          return;
-        }
-        $("shelfError").textContent = "";
-        fileInput.value = "";
-        nameInput.value = "";
-        await Promise.all([loadShelfList(), loadShelf()]);
-      } catch (err) {
-        $("shelfError").textContent = "导入失败：" + err.message;
-      } finally {
-        $("addBookBtn").disabled = false;
-      }
-    }
-
-    async function removeBook(path) {
-      try {
-        const resp = await fetch("/api/shelf/remove", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path }),
-        });
-        const data = await resp.json();
-        if (!resp.ok) {
-          $("shelfError").textContent = data.error || "移除失败。";
-          return;
-        }
-        await Promise.all([loadShelfList(), loadShelf()]);
-      } catch (err) {
-        $("shelfError").textContent = "移除失败：" + err.message;
-      }
-    }
-
-    $("addBookBtn").addEventListener("click", addBook);
-
-    async function importWebPage() {
-      const url = $("webUrlInput").value.trim();
-      if (!url) {
-        $("shelfError").textContent = "请输入要导入的网页地址。";
-        return;
-      }
-      $("importWebBtn").disabled = true;
-      $("shelfError").textContent = "正在抓取网页，请稍候……";
-      try {
-        const resp = await fetch("/api/web/import", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            url,
-            name: $("webNameInput").value.trim(),
-          }),
-        });
-        const data = await resp.json();
-        if (!resp.ok) {
-          $("shelfError").textContent = data.error || "导入网页失败。";
-          return;
-        }
-        $("shelfError").textContent = "";
-        $("webUrlInput").value = "";
-        $("webNameInput").value = "";
-        await Promise.all([loadShelfList(), loadShelf()]);
-      } catch (err) {
-        $("shelfError").textContent = "导入网页失败：" + err.message;
-      } finally {
-        $("importWebBtn").disabled = false;
-      }
-    }
-
-    $("importWebBtn").addEventListener("click", importWebPage);
-
-    async function loadChapters(path) {
-      const select = $("chapterSelect");
-      select.innerHTML = "";
-      $("chapterQuery").value = "";
-      if (!path) return;
-      try {
-        const resp = await fetch("/api/books/chapters", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path, level: $("chapterLevel").value }),
-        });
-        const data = await resp.json();
-        if (!resp.ok) {
-          const opt = document.createElement("option");
-          opt.textContent = "无法读取章节";
-          opt.disabled = true;
-          select.appendChild(opt);
-          return;
-        }
-        data.chapters.forEach((chapter) => {
-          const opt = document.createElement("option");
-          opt.value = chapter.title;
-          opt.textContent = chapter.title;
-          select.appendChild(opt);
-        });
-        $("chapterQuery").value = select.value || "";
-      } catch (err) {
-        const opt = document.createElement("option");
-        opt.textContent = "读取章节失败";
-        opt.disabled = true;
-        select.appendChild(opt);
-      }
-    }
-
-    $("bookSelect").addEventListener("change", () => {
-      const selected = $("bookSelect").value;
-      if (selected) loadChapters(JSON.parse(selected).path);
-    });
-
-    $("chapterSelect").addEventListener("change", () => {
-      $("chapterQuery").value = $("chapterSelect").value;
-    });
-
-    $("chapterLevel").addEventListener("change", () => {
-      const selected = $("bookSelect").value;
-      if (selected) loadChapters(JSON.parse(selected).path);
-    });
-
-    $("explainLevel").addEventListener("change", () => {
-      localStorage.setItem("explainLevel", $("explainLevel").value);
-    });
-
-    async function loadSessions() {
-      const select = $("sessionSelect");
-      select.innerHTML = "";
-      try {
-        const resp = await fetch("/api/sessions");
-        const sessions = await resp.json();
-        if (!sessions.length) {
-          const opt = document.createElement("option");
-          opt.textContent = "还没有已保存的会话";
-          opt.disabled = true;
-          select.appendChild(opt);
-          return;
-        }
-        sessions.forEach((session) => {
-          const opt = document.createElement("option");
-          opt.value = session.id;
-          const modeLabel = session.mode === "电子书" ? "电子书" : "目录";
-          opt.textContent = `[${modeLabel}] ${session.subject} · ${session.saved_at}`;
-          select.appendChild(opt);
-        });
-      } catch (err) {
-        $("historyError").textContent = "读取会话失败：" + err.message;
-      }
-    }
-
-    async function loadReview() {
-      const box = $("reviewContent");
-      box.innerHTML = "";
-      try {
-        const resp = await fetch("/api/summaries");
-        const data = await resp.json();
-        const books = data.books || [];
-        if (!books.length) {
-          box.innerHTML = '<p class="hint">还没有任何学习总结。</p>';
-          return;
-        }
-        books.forEach((book) => {
-          const group = document.createElement("div");
-          group.className = "book-group";
-          const title = document.createElement("h3");
-          title.textContent = "📖 " + book.book_name;
-          group.appendChild(title);
-
-          book.summaries.forEach((item) => {
-            const details = document.createElement("details");
-            details.className = "summary-item";
-            const summary = document.createElement("summary");
-            summary.textContent = `${item.chapter_title} · ${item.updated_at}`;
-            details.appendChild(summary);
-
-            const body = document.createElement("div");
-            body.className = "summary-body bubble";
-            body.innerHTML = item.html || "";
-            details.appendChild(body);
-            group.appendChild(details);
-          });
-          box.appendChild(group);
-        });
-      } catch (err) {
-        box.textContent = "读取总结失败：" + err.message;
-      }
-    }
-
-    function showError(message) {
-      $("setupError").textContent = message;
-    }
-
-    $("startBtn").addEventListener("click", async () => {
-      $("startBtn").disabled = true;
-      showError("");
-      const payload = { mode };
-      payload.explain_level = $("explainLevel").value;
-      if (mode === "book") {
-        const selected = $("bookSelect").value;
-        if (!selected) {
-          showError("请先在命令行中添加一本书。");
-          $("startBtn").disabled = false;
-          return;
-        }
-        const book = JSON.parse(selected);
-        payload.book_name = book.name;
-        payload.book_path = book.path;
-        payload.chapter_query = $("chapterQuery").value.trim() || $("chapterSelect").value;
-        payload.chapter_level = $("chapterLevel").value;
-      } else {
-        payload.outline_title = $("outlineTitle").value.trim();
-        payload.outline_content = $("outlineContent").value.trim();
-      }
-
-      try {
-        const resp = await fetch("/api/session/start", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const data = await resp.json();
-        if (!resp.ok) {
-          showError(data.error || "启动失败");
-          return;
-        }
-        sessionId = data.session_id;
-        $("messages").innerHTML = "";
-        $("setup").classList.add("hidden");
-        $("chatSection").classList.remove("hidden");
-        appendAssistant(data.opening_html);
-        $("messageInput").focus();
-      } catch (err) {
-        showError("启动失败：" + err.message);
-      } finally {
-        $("startBtn").disabled = false;
-      }
-    });
-
-    function appendUser(text) {
-      const wrap = document.createElement("div");
-      wrap.className = "msg user";
-      wrap.innerHTML = '<div class="role">你</div><div class="bubble"></div>';
-      wrap.querySelector(".bubble").textContent = text;
-      $("messages").appendChild(wrap);
-      scrollToBottom();
-    }
-
-    function appendAssistant(html) {
-      const wrap = document.createElement("div");
-      wrap.className = "msg assistant";
-      wrap.innerHTML = '<div class="role">教练</div><div class="bubble"></div>';
-      wrap.querySelector(".bubble").innerHTML = html;
-      $("messages").appendChild(wrap);
-      scrollToBottom();
-    }
-
-    function appendNote(text) {
-      const wrap = document.createElement("div");
-      wrap.className = "msg assistant";
-      wrap.innerHTML = '<div class="role">系统</div><div class="bubble summary-note"></div>';
-      wrap.querySelector(".bubble").textContent = text;
-      $("messages").appendChild(wrap);
-      scrollToBottom();
-    }
-
-    function scrollToBottom() {
-      const box = $("messages");
-      box.scrollTop = box.scrollHeight;
-    }
-
-    async function sendMessage() {
-      const input = $("messageInput");
-      const text = input.value.trim();
-      if (!text || !sessionId) return;
-      input.value = "";
-      appendUser(text);
-      $("sendBtn").disabled = true;
-
-      const wrap = document.createElement("div");
-      wrap.className = "msg assistant";
-      wrap.innerHTML = '<div class="role">教练</div><div class="bubble"></div>';
-      $("messages").appendChild(wrap);
-      const bubble = wrap.querySelector(".bubble");
-      scrollToBottom();
-
-      let buffer = "";
-      try {
-        const resp = await fetch("/api/chat/stream", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session_id: sessionId, message: text }),
-        });
-        if (!resp.ok || !resp.body) {
-          bubble.textContent = "请求失败，请稍后重试。";
-          return;
-        }
-
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let remainder = "";
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          remainder += decoder.decode(value, { stream: true });
-          const lines = remainder.split("\n");
-          remainder = lines.pop();
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const payload = line.slice(6).trim();
-            if (!payload) continue;
-            let event;
-            try {
-              event = JSON.parse(payload);
-            } catch {
-              continue;
-            }
-            if (event.delta) {
-              buffer += event.delta;
-              bubble.textContent = buffer;
-              scrollToBottom();
-            } else if (event.done) {
-              bubble.innerHTML = event.html;
-              scrollToBottom();
-            } else if (event.error) {
-              bubble.textContent = "请求失败：" + event.error;
-            }
-          }
-        }
-      } catch (err) {
-        bubble.textContent = "请求失败：" + err.message;
-      } finally {
-        $("sendBtn").disabled = false;
-        $("messageInput").focus();
-      }
-    }
-
-    $("sendBtn").addEventListener("click", sendMessage);
-    $("messageInput").addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        sendMessage();
-      }
-    });
-
-    $("resumeBtn").addEventListener("click", async () => {
-      const id = $("sessionSelect").value;
-      if (!id) return;
-      $("resumeBtn").disabled = true;
-      $("historyError").textContent = "";
-      try {
-        const resp = await fetch("/api/session/resume", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id }),
-        });
-        const data = await resp.json();
-        if (!resp.ok) {
-          $("historyError").textContent = data.error || "继续失败";
-          return;
-        }
-        sessionId = data.session_id;
-        $("messages").innerHTML = "";
-        (data.messages || []).forEach((message) => {
-          if (message.role === "assistant") {
-            appendAssistant(message.html || escapeHtml(message.content));
-          } else {
-            appendUser(message.content);
-          }
-        });
-        showSection("chatSection");
-        $("messageInput").focus();
-      } catch (err) {
-        $("historyError").textContent = "继续失败：" + err.message;
-      } finally {
-        $("resumeBtn").disabled = false;
-      }
-    });
-
-    $("summaryBtn").addEventListener("click", async () => {
-      if (!sessionId) return;
-      $("summaryBtn").disabled = true;
-      appendNote("正在生成总结……");
-      try {
-        const resp = await fetch("/api/summary", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session_id: sessionId }),
-        });
-        const data = await resp.json();
-        if (!resp.ok) {
-          appendNote(data.error || "生成总结失败");
-          return;
-        }
-        appendAssistant(data.html);
-        appendNote("总结已保存，下次学习同一章节会自动回顾薄弱点。");
-      } catch (err) {
-        appendNote("生成总结失败：" + err.message);
-      } finally {
-        $("summaryBtn").disabled = false;
-      }
-    });
-
-    $("endBtn").addEventListener("click", async () => {
-      if (!sessionId) return;
-      $("endBtn").disabled = true;
-      try {
-        const resp = await fetch("/api/session/end", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session_id: sessionId }),
-        });
-        const data = await resp.json();
-        if (!resp.ok) {
-          appendNote(data.error || "结束失败");
-          return;
-        }
-        appendNote("本次会话已保存，学习结束。");
-        sessionId = null;
-        setTimeout(() => {
-          $("chatSection").classList.add("hidden");
-          $("setup").classList.remove("hidden");
-        }, 600);
-      } catch (err) {
-        appendNote("结束失败：" + err.message);
-      } finally {
-        $("endBtn").disabled = false;
-      }
-    });
-
-    const savedExplainLevel = localStorage.getItem("explainLevel");
-    if (savedExplainLevel) $("explainLevel").value = savedExplainLevel;
-
-    loadShelf();
-  </script>
-</body>
-</html>
-"""
 
 
 if __name__ == "__main__":
