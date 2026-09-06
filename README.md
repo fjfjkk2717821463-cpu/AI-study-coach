@@ -138,8 +138,8 @@ My bookshelf contains both *Engineering Thermodynamics* and *A History of Wester
 
 No Python or terminal required. Grab the latest build from the [Releases](../../releases) page:
 
-- macOS: `AI-Study-Coach-macOS.zip` — unzip and run `刻意摩擦学习教练.app`
-- Windows: `AI-Study-Coach-windows.zip` — unzip and run `刻意摩擦学习教练.exe`
+- macOS: `AI-Study-Coach-macOS.zip` — unzip and run `DFL Coach.app`
+- Windows: `AI-Study-Coach-windows.zip` — unzip and run `DFL Coach.exe`
 
 macOS may show a "cannot verify the developer" warning the first time. Right-click the app and choose **Open** to proceed.
 

@@ -48,7 +48,7 @@ def main():
         return
 
     webview.create_window(
-        "刻意摩擦学习教练",
+        "DFL Coach",
         url,
         width=1100,
         height=780,

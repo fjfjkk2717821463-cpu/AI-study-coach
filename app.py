@@ -613,7 +613,7 @@ HTML_PAGE = r"""<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>刻意摩擦学习教练</title>
+  <title>DFL Coach</title>
   <style>
     :root {
       --bg: #f6f7f9;
@@ -837,7 +837,7 @@ HTML_PAGE = r"""<!doctype html>
 <body>
   <div class="app">
     <header>
-      <h1>📚 刻意摩擦学习教练</h1>
+      <h1>📚 DFL Coach</h1>
       <p class="sub">先带你准确学懂一个概念，再用费曼式复述、反例和默写重构来检测巩固，而不是只「看懂了」。</p>
       <div class="header-actions">
         <button id="historyBtn" type="button">🕘 继续上次学习</button>

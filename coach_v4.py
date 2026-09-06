@@ -513,7 +513,7 @@ def manage_bookshelf():
 
 def main():
     print("=" * 50)
-    print("    📚 刻意摩擦学习教练 V4（多模式·书架·记忆）")
+    print("    📚 DFL Coach V4（多模式·书架·记忆）")
     print("=" * 50)
 
     if not load_api_key():
