@@ -23,7 +23,7 @@ def get_summary_path(book_name, chapter_title):
     return os.path.join(SUMMARIES_DIR, f"{safe_book}_{safe_chapter}.json")
 
 
-def save_summary(book_name, chapter_title, summary_text):
+def save_summary(book_name, chapter_title, summary_text, concepts=None):
     """保存总结到本地，并附带更新时间。"""
     path = get_summary_path(book_name, chapter_title)
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -33,6 +33,7 @@ def save_summary(book_name, chapter_title, summary_text):
                 "summary": summary_text,
                 "book_name": book_name,
                 "chapter_title": chapter_title,
+                "concepts": concepts or [],
                 "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
             },
             f,
@@ -43,15 +44,39 @@ def save_summary(book_name, chapter_title, summary_text):
 
 def load_summary(book_name, chapter_title):
     """读取总结，若无则返回空字符串。兼容旧版只保存 summary 的格式。"""
+    full = load_summary_full(book_name, chapter_title)
+    return full.get("summary", "") if full else ""
+
+
+def load_summary_full(book_name, chapter_title):
+    """读取完整总结数据；不存在或损坏时返回 None。"""
     path = get_summary_path(book_name, chapter_title)
     if not os.path.exists(path):
-        return ""
+        return None
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
-        return ""
-    return data.get("summary", "") if isinstance(data, dict) else ""
+        return None
+    if not isinstance(data, dict):
+        return None
+    data.setdefault("concepts", [])
+    return data
+
+
+def update_summary_concepts(book_name, chapter_title, concepts):
+    """把提取出的概念写回已有总结。"""
+    full = load_summary_full(book_name, chapter_title)
+    if not full:
+        return False
+    path = get_summary_path(book_name, chapter_title)
+    full["concepts"] = concepts or []
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(full, f, ensure_ascii=False, indent=2)
+        return True
+    except OSError:
+        return False
 
 
 def list_summaries():
@@ -77,6 +102,7 @@ def list_summaries():
         item = {
             "chapter_title": data.get("chapter_title") or filename,
             "summary": data.get("summary") or "",
+            "concepts": data.get("concepts") or [],
             "updated_at": data.get("updated_at") or "",
         }
         grouped.setdefault(book_name, []).append(item)

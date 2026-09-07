@@ -88,6 +88,13 @@ While off-the-shelf AI chat tools are powerful, they cannot actively guide me th
 - **Structured summaries:** Generate a summary of mastered concepts, remaining weaknesses, counterexamples, and next-step review suggestions.
 - **Weak-point review:** Saved summaries are automatically loaded the next time the same chapter is studied.
 - **Unified review center:** All learning summaries are grouped by book in one place for later review and revision.
+- **Weak-point quizzes:** A per-summary "quiz me" button turns weak points into questions the coach grades; the summary text itself is always preserved.
+- **Optional spaced review:** Opt-in scheduling that resurfaces chapters for review on a forgetting-curve-style interval.
+- **Voice retelling:** Record your spoken explanation and let the coach comment on gaps, errors, and hesitation.
+- **Reconstruction mode:** Rewrite the chapter from memory in a dedicated view, then compare section by section with the source text.
+- **Concept map:** Concepts extracted from summaries are grouped by mastery level, per book.
+- **Usage display:** Token usage and estimated cost for the current session, with friendly error guidance.
+- **Dark mode, first-run onboarding, update notifications, and PWA support.**
 - **Continue previous sessions:** Saved conversations can be searched, renamed, deleted, and reopened from where they left off.
 - **Multi-model support:** Pick DeepSeek, OpenAI, Zhipu GLM, Qwen, Kimi, SiliconFlow, or any OpenAI-compatible endpoint, and set the model name and API key from the in-app settings dialog.
 

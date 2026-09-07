@@ -4,6 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DFL Coach</title>
+  <meta name="theme-color" content="#4f46e5">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+  <script>
+    (function () {
+      var t = localStorage.getItem("dfc-theme");
+      if (t !== "light" && t !== "dark") {
+        t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
   <style>
     :root {
       --bg: #f6f7f9;
@@ -15,6 +27,17 @@
       --accent-hover: #4338ca;
       --user-bubble: #eef2ff;
       --assistant-bubble: #ffffff;
+    }
+    html[data-theme="dark"] {
+      --bg: #101318;
+      --card: #191d24;
+      --text: #e6e9ee;
+      --muted: #9aa3b0;
+      --border: #2a313c;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --user-bubble: #242b3a;
+      --assistant-bubble: #191d24;
     }
     * { box-sizing: border-box; }
     body {
@@ -286,6 +309,117 @@
     .modal-actions button { flex: 1; padding: 10px; border-radius: 9px; cursor: pointer; font-size: 14px; border: 1px solid var(--border); background: #fff; }
     .modal-actions .primary { background: var(--accent); color: #fff; border: 0; }
     .settings-hint { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+    .usage-line { color: var(--muted); font-size: 12px; margin: 4px 2px 8px; min-height: 16px; }
+    .voice-btn {
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 10px;
+      cursor: pointer;
+      padding: 0 12px;
+      font-size: 18px;
+    }
+    .voice-btn.recording { background: #fde8e8; border-color: #ef4444; }
+    .quiz-question { margin-bottom: 16px; }
+    .quiz-question .q-title { font-weight: 600; margin-bottom: 6px; }
+    .quiz-option {
+      display: block;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      background: var(--card);
+    }
+    .quiz-option.selected { border-color: var(--accent); background: var(--user-bubble); }
+    .concept-tag {
+      display: inline-block;
+      margin: 3px 4px 3px 0;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 13px;
+      border: 1px solid var(--border);
+      background: var(--card);
+    }
+    .concept-tag.mastered { border-color: #16a34a; color: #15803d; }
+    .concept-tag.weak { border-color: #d97706; color: #b45309; }
+    .review-due-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 8px;
+      background: var(--card);
+    }
+    .review-due-row .r-actions { display: flex; gap: 6px; flex: none; }
+    .review-due-row .r-actions button {
+      padding: 5px 9px;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .banner {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: #4f46e5;
+      color: #fff;
+      padding: 8px 14px;
+      text-align: center;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+    .banner a { color: #fff; font-weight: 600; }
+    .banner button { background: rgba(255,255,255,0.2); border: 0; color: #fff; border-radius: 6px; cursor: pointer; padding: 2px 8px; }
+    .onboarding {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.72);
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .onboarding-card {
+      width: min(440px, 92vw);
+      background: var(--card);
+      color: var(--text);
+      border-radius: 16px;
+      padding: 26px;
+    }
+    .onboarding-card h2 { margin: 0 0 12px; }
+    .onboarding-card .step { font-size: 15px; margin: 10px 0; }
+    .onboarding-actions { display: flex; justify-content: space-between; margin-top: 18px; }
+    .onboarding-actions button {
+      padding: 8px 14px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      border-radius: 9px;
+      cursor: pointer;
+    }
+    .onboarding-actions .primary { background: var(--accent); color: #fff; border: 0; }
+    .compare-grid { display: flex; gap: 10px; }
+    .compare-grid textarea {
+      flex: 1;
+      min-height: 220px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 14px;
+      font-family: inherit;
+      background: var(--card);
+      color: var(--text);
+      resize: vertical;
+    }
+    .version-tag { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 8px; }
     @media (max-width: 640px) {
       .app { padding: 16px 10px 40px; }
       h1 { font-size: 24px; }
@@ -306,13 +440,15 @@
 <body>
   <div class="app">
     <header>
-      <h1>📚 DFL Coach</h1>
+      <h1>📚 DFL Coach<span id="versionTag" class="version-tag"></span></h1>
       <p class="sub">先带你准确学懂一个概念，再用费曼式复述、反例和默写重构来检测巩固，而不是只「看懂了」。</p>
       <div class="header-actions">
         <button id="historyBtn" type="button">🕘 继续上次学习</button>
         <button id="reviewBtn" type="button">📚 复习所有总结</button>
+        <button id="conceptMapBtn" type="button">🧠 概念图谱</button>
         <button id="shelfBtn" type="button">📖 管理书架</button>
         <button id="settingsBtn" type="button">⚙️ 模型设置</button>
+        <button id="themeBtn" type="button">🌙 深色</button>
       </div>
     </header>
 
@@ -400,16 +536,29 @@
         <button id="reviewBackBtn" type="button">← 返回开始学习</button>
       </div>
       <h2>📚 学习总结复习中心</h2>
+      <div id="dueReviews"></div>
       <div id="reviewContent"></div>
     </section>
 
+    <section id="conceptMapSection" class="card hidden">
+      <div class="back-row">
+        <button id="conceptMapBackBtn" type="button">← 返回开始学习</button>
+      </div>
+      <h2>🧠 概念图谱</h2>
+      <p class="hint">把各章节总结里的概念按掌握程度汇总；早期没有概念清单的总结可一键补充提取。</p>
+      <div id="conceptMapContent"></div>
+    </section>
+
     <section id="chatSection" class="card hidden">
+      <p id="usageLine" class="usage-line"></p>
       <div id="messages"></div>
       <div class="composer">
+        <button id="voiceBtn" class="voice-btn" type="button" title="语音复述（说话转文字，发送后教练点评）">🎤</button>
         <textarea id="messageInput" placeholder="输入你的理解，教练会追问、给反例、检查逻辑……"></textarea>
         <button id="sendBtn" class="primary" type="button">发送</button>
       </div>
       <div class="actions">
+        <button id="compareBtn" type="button">📝 默写模式</button>
         <button id="summaryBtn" type="button">生成总结</button>
         <button id="endBtn" type="button">结束并保存会话</button>
       </div>
@@ -426,6 +575,9 @@
         <input id="modelInput" placeholder="例如：deepseek-chat / gpt-4o-mini">
         <label for="modelKeyInput">API Key（留空则继续使用已保存的密钥）</label>
         <input id="modelKeyInput" type="password" placeholder="sk-...">
+        <label><input id="spacedReviewToggle" type="checkbox"> 开启间隔复习（按遗忘曲线安排复习时间）</label>
+        <label for="priceInput">每百万 token 费用（元，用于估算花费，可不填）</label>
+        <input id="priceInput" type="number" min="0" step="0.1" placeholder="例如：2">
         <p id="settingsHint" class="settings-hint"></p>
         <div class="modal-actions">
           <button id="closeSettingsBtn" type="button">取消</button>
@@ -434,8 +586,60 @@
         <p id="settingsError" class="error"></p>
       </div>
     </div>
+
+    <div id="quizModal" class="modal hidden">
+      <div class="modal-card">
+        <h2>📝 薄弱点测验</h2>
+        <p id="quizMeta" class="hint"></p>
+        <div id="quizBody"></div>
+        <div class="modal-actions">
+          <button id="closeQuizBtn" type="button">关闭</button>
+          <button id="submitQuizBtn" class="primary" type="button">提交批改</button>
+        </div>
+        <div id="quizResult" class="summary-body bubble hidden"></div>
+      </div>
+    </div>
+
+    <div id="compareModal" class="modal hidden">
+      <div class="modal-card">
+        <h2>📝 默写模式</h2>
+        <p class="hint">合上原文，凭记忆把本章内容写出来；写完后再展开原文点「开始比对」。</p>
+        <textarea id="reconstructionInput" style="width:100%;min-height:220px;border:1px solid var(--border);border-radius:10px;padding:10px;font-size:14px;font-family:inherit;background:var(--card);color:var(--text);" placeholder="凭记忆写下你的重构……"></textarea>
+        <details id="sourceDetails" class="summary-item" style="margin-top:12px;">
+          <summary>显示原文（写完再看）</summary>
+          <div id="sourceText" class="summary-body bubble"></div>
+        </details>
+        <div class="modal-actions">
+          <button id="closeCompareBtn" type="button">取消</button>
+          <button id="startCompareBtn" class="primary" type="button">开始比对</button>
+        </div>
+        <div id="compareOutput" class="summary-body bubble hidden"></div>
+      </div>
+    </div>
+
+    <div id="updateBanner" class="banner hidden">
+      <span id="updateText"></span>
+      <a id="updateLink" href="#" target="_blank" rel="noopener">查看</a>
+      <button id="dismissUpdateBtn" type="button">×</button>
+    </div>
+
+    <div id="onboarding" class="onboarding hidden">
+      <div class="onboarding-card">
+        <h2 id="obTitle"></h2>
+        <div id="obBody"></div>
+        <div class="onboarding-actions">
+          <button id="obSkip" type="button">跳过</button>
+          <button id="obNext" class="primary" type="button">下一步</button>
+        </div>
+      </div>
+    </div>
   </div>
 
 <script src="/static/app.js"></script>
+<script>
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/static/sw.js").catch(function () {});
+  }
+</script>
 </body>
 </html>

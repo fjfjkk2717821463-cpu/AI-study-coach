@@ -26,6 +26,9 @@ MAX_CHAPTER_CHARS = 12000
 ENV_FILE = app_paths.migrate_file(".env")
 MODEL_CONFIG_FILE = os.path.join(app_paths.get_data_dir(), "model_config.json")
 
+# 最近一次请求的 token 用量，供上层读取显示。
+LAST_USAGE = {}
+
 # OpenAI 兼容接口的服务商预设；自定义模式由用户填写 base_url 和 model。
 MODEL_PRESETS = {
     "deepseek": {
@@ -274,12 +277,14 @@ def _parse_stream_line(line):
 
 def _request_chat(messages, stream=False):
     """发送请求，处理 HTTP 状态码、响应解析、超时/网络重试和流式输出。"""
+    global LAST_USAGE
     base_url, model, api_key = get_api_settings()
     payload = {
         "model": model,
         "messages": messages,
         "stream": stream,
         "temperature": TEMPERATURE,
+        "stream_options": {"include_usage": True},
     }
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -305,13 +310,11 @@ def _request_chat(messages, stream=False):
 
             if stream:
                 parts = []
-                for raw_line in resp.iter_lines(decode_unicode=True):
-                    delta = _parse_stream_line(raw_line)
-                    if delta is None:
-                        break
-                    if delta:
-                        parts.append(delta)
-                        print(delta, end="", flush=True)
+                usage_holder = {}
+                for delta in _iter_stream_deltas(resp, usage_holder):
+                    parts.append(delta)
+                    print(delta, end="", flush=True)
+                LAST_USAGE = usage_holder.get("usage", {})
                 return "".join(parts)
 
             try:
@@ -327,6 +330,7 @@ def _request_chat(messages, stream=False):
                     f"响应格式异常：{json.dumps(data, ensure_ascii=False)[:500]}",
                     retryable=False,
                 )
+            LAST_USAGE = data.get("usage") or {}
             return reply
 
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
@@ -347,14 +351,28 @@ def _request_chat(messages, stream=False):
     raise RuntimeError(str(last_error) if last_error else "未知错误")
 
 
-def _iter_stream_deltas(resp):
+def _iter_stream_deltas(resp, usage_holder=None):
     """逐行解析一个已打开的流式响应，产出增量文本。"""
     for raw_line in resp.iter_lines(decode_unicode=True):
-        delta = _parse_stream_line(raw_line)
-        if delta is None:
+        if not raw_line or raw_line.startswith(":"):
+            continue
+        line = raw_line.strip()
+        if not line.startswith("data:"):
+            continue
+        data = line[len("data:"):].strip()
+        if data == "[DONE]":
             break
-        if delta:
-            yield delta
+        try:
+            payload = json.loads(data)
+        except json.JSONDecodeError:
+            continue
+        choices = payload.get("choices") or []
+        if choices:
+            delta = (choices[0].get("delta") or {}).get("content") or ""
+            if delta:
+                yield delta
+        if payload.get("usage") and usage_holder is not None:
+            usage_holder["usage"] = payload["usage"]
 
 
 def stream_chat(messages):
@@ -365,6 +383,7 @@ def stream_chat(messages):
         "messages": messages,
         "stream": True,
         "temperature": TEMPERATURE,
+        "stream_options": {"include_usage": True},
     }
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -387,9 +406,12 @@ def stream_chat(messages):
                     f"API 请求失败（HTTP {resp.status_code}）：{resp.text[:500]}",
                     retryable=resp.status_code >= 500,
                 )
-            for delta in _iter_stream_deltas(resp):
+            usage_holder = {}
+            for delta in _iter_stream_deltas(resp, usage_holder):
                 yielded_any = True
                 yield delta
+            global LAST_USAGE
+            LAST_USAGE = usage_holder.get("usage", {})
             return
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
             last_error = exc

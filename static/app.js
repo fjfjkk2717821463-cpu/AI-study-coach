@@ -3,6 +3,7 @@
     let allChapterTitles = [];
     let lastAssistantWrap = null;
     let presetsCache = {};
+    let currentAppSettings = {};
 
     const $ = (id) => document.getElementById(id);
 
@@ -13,7 +14,7 @@
     }
 
     function showSection(name) {
-      ["setup", "chatSection", "bookshelfSection", "historySection", "reviewSection"].forEach((id) => {
+      ["setup", "chatSection", "bookshelfSection", "historySection", "reviewSection", "conceptMapSection"].forEach((id) => {
         $(id).classList.toggle("hidden", id !== name);
       });
       closeChapterMenu();
@@ -28,7 +29,12 @@
 
     $("reviewBtn").addEventListener("click", async () => {
       showSection("reviewSection");
-      await loadReview();
+      await Promise.all([loadReview(), loadDueReviews()]);
+    });
+
+    $("conceptMapBtn").addEventListener("click", async () => {
+      showSection("conceptMapSection");
+      await loadConceptMap();
     });
 
     $("shelfBtn").addEventListener("click", async () => {
@@ -39,6 +45,7 @@
 
     $("historyBackBtn").addEventListener("click", () => showSection("setup"));
     $("reviewBackBtn").addEventListener("click", () => showSection("setup"));
+    $("conceptMapBackBtn").addEventListener("click", () => showSection("setup"));
     $("bookshelfBackBtn").addEventListener("click", () => showSection("setup"));
 
     function switchMode(nextMode) {
@@ -457,6 +464,14 @@
           group.appendChild(title);
 
           book.summaries.forEach((item) => {
+            const quizBtn = document.createElement("button");
+            quizBtn.type = "button";
+            quizBtn.style.cssText = "margin: 6px 0;padding:5px 10px;border:1px solid var(--border);background:#fff;border-radius:8px;cursor:pointer;font-size:13px;";
+            quizBtn.textContent = "📝 出题考我";
+            quizBtn.addEventListener("click", () =>
+              openQuiz(book.book_name, item.chapter_title)
+            );
+
             const details = document.createElement("details");
             details.className = "summary-item";
             const summary = document.createElement("summary");
@@ -467,7 +482,11 @@
             body.className = "summary-body bubble";
             body.innerHTML = item.html || "";
             details.appendChild(body);
-            group.appendChild(details);
+            const wrap = document.createElement("div");
+            wrap.style.marginBottom = "8px";
+            wrap.appendChild(quizBtn);
+            wrap.appendChild(details);
+            group.appendChild(wrap);
           });
           box.appendChild(group);
         });
@@ -515,6 +534,7 @@
         }
         sessionId = data.session_id;
         $("messages").innerHTML = "";
+        $("usageLine").textContent = "";
         $("setup").classList.add("hidden");
         $("chatSection").classList.remove("hidden");
         appendAssistant(data.opening_html);
@@ -607,6 +627,7 @@
             scrollToBottom();
           } else if (event.done) {
             bubble.innerHTML = event.html;
+            if (event.session_usage) updateUsageLine(event.session_usage);
             scrollToBottom();
             return true;
           } else if (event.error) {
@@ -620,8 +641,14 @@
 
     async function sendMessage() {
       const input = $("messageInput");
-      const text = input.value.trim();
+      let text = input.value.trim();
       if (!text || !sessionId) return;
+      if (input.dataset.voice === "1") {
+        input.dataset.voice = "";
+        text =
+          "以下是我刚才口头复述的内容，请对照原文指出遗漏、偏差和口头表达的卡壳点，并点评：\n" +
+          text;
+      }
       input.value = "";
       appendUser(text);
       $("sendBtn").disabled = true;
@@ -692,6 +719,7 @@
         }
         sessionId = data.session_id;
         $("messages").innerHTML = "";
+        $("usageLine").textContent = "";
         (data.messages || []).forEach((message) => {
           if (message.role === "assistant") {
             appendAssistant(message.html || escapeHtml(message.content));
@@ -781,6 +809,12 @@
         $("baseUrlInput").value = data.base_url || "";
         $("modelInput").value = data.model || "";
         $("modelKeyInput").value = "";
+        currentAppSettings = {
+          spaced_review: !!data.spaced_review,
+          price_per_mtok: data.price_per_mtok || 0,
+        };
+        $("spacedReviewToggle").checked = !!data.spaced_review;
+        $("priceInput").value = data.price_per_mtok ? String(data.price_per_mtok) : "";
         $("settingsHint").textContent = data.has_api_key
           ? "当前密钥：" + data.api_key_masked
           : "尚未设置 API Key。";
@@ -818,6 +852,8 @@
             base_url: $("baseUrlInput").value.trim(),
             model: $("modelInput").value.trim(),
             api_key: $("modelKeyInput").value.trim(),
+            spaced_review: $("spacedReviewToggle").checked,
+            price_per_mtok: $("priceInput").value || 0,
           }),
         });
         const data = await resp.json();
@@ -829,6 +865,10 @@
         if (data.api_key_masked) {
           $("settingsHint").textContent = "当前密钥：" + data.api_key_masked;
         }
+        currentAppSettings = {
+          spaced_review: !!data.spaced_review,
+          price_per_mtok: data.price_per_mtok || 0,
+        };
         closeSettings();
       } catch (err) {
         $("settingsError").textContent = "保存失败：" + err.message;
@@ -836,5 +876,437 @@
         $("saveSettingsBtn").disabled = false;
       }
     });
+
+    // ===== 深色模式 =====
+    function currentTheme() {
+      const pref = localStorage.getItem("dfc-theme");
+      if (pref === "light" || pref === "dark") return pref;
+      return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light";
+    }
+    function applyTheme() {
+      const theme = currentTheme();
+      document.documentElement.setAttribute("data-theme", theme);
+      $("themeBtn").textContent = theme === "dark" ? "☀️ 浅色" : "🌙 深色";
+    }
+    $("themeBtn").addEventListener("click", () => {
+      const theme = currentTheme();
+      localStorage.setItem("dfc-theme", theme === "dark" ? "light" : "dark");
+      applyTheme();
+    });
+    if (window.matchMedia) {
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+        if (!["light", "dark"].includes(localStorage.getItem("dfc-theme") || "")) {
+          applyTheme();
+        }
+      });
+    }
+    applyTheme();
+
+    // ===== 版本与更新检查 =====
+    async function loadVersion() {
+      try {
+        const resp = await fetch("/api/version");
+        const data = await resp.json();
+        $("versionTag").textContent = "v" + data.version;
+        checkUpdate(data.version);
+      } catch (err) {}
+    }
+    async function checkUpdate(current) {
+      const key = "dfc-update-checked";
+      const cached = localStorage.getItem(key);
+      if (cached && Date.now() - parseInt(cached, 10) < 24 * 3600 * 1000) return;
+      localStorage.setItem(key, String(Date.now()));
+      try {
+        const resp = await fetch(
+          "https://api.github.com/repos/fjfjkk2717821463-cpu/AI-study-coach/releases/latest"
+        );
+        const data = await resp.json();
+        const latest = (data.tag_name || "").replace(/^v/, "");
+        if (latest && latest !== current) {
+          $("updateText").textContent = "有新版本 v" + latest + " 可用";
+          $("updateLink").href = data.html_url || "#";
+          $("updateBanner").classList.remove("hidden");
+        }
+      } catch (err) {}
+    }
+    $("dismissUpdateBtn").addEventListener("click", () =>
+      $("updateBanner").classList.add("hidden")
+    );
+    loadVersion();
+
+    // ===== 首次使用引导 =====
+    const OB_STEPS = [
+      {
+        title: "① 导入你的书",
+        body: "点「📖 管理书架」，导入 .txt / .md / .pdf / .epub，或粘贴网页链接。",
+      },
+      {
+        title: "② 选择章节开始",
+        body: "选一本书和章节，教练会先精讲概念：定义 → 直觉 → 例子 → 反例 → 误区。",
+      },
+      {
+        title: "③ 先讲后测",
+        body: "听懂后再说「开始检测」，用复述、反例、默写比对巩固。祝你学得扎实！",
+      },
+    ];
+    let obIndex = 0;
+    function showObStep() {
+      const step = OB_STEPS[obIndex];
+      $("obTitle").textContent = step.title;
+      $("obBody").innerHTML = '<div class="step">' + step.body + "</div>";
+      $("obNext").textContent =
+        obIndex === OB_STEPS.length - 1 ? "开始使用" : "下一步";
+    }
+    function closeOb() {
+      $("onboarding").classList.add("hidden");
+      localStorage.setItem("dfc-onboarded", "1");
+    }
+    $("obNext").addEventListener("click", () => {
+      if (obIndex >= OB_STEPS.length - 1) {
+        closeOb();
+        return;
+      }
+      obIndex += 1;
+      showObStep();
+    });
+    $("obSkip").addEventListener("click", closeOb);
+    if (!localStorage.getItem("dfc-onboarded")) {
+      $("onboarding").classList.remove("hidden");
+      showObStep();
+    }
+
+    // ===== 语音复述 =====
+    let recognition = null;
+    let voiceActive = false;
+    $("voiceBtn").addEventListener("click", () => {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) {
+        $("messageInput").placeholder = "当前环境不支持语音，请在 Chrome/Safari 中使用";
+        return;
+      }
+      if (!voiceActive) {
+        recognition = new SR();
+        recognition.lang = "zh-CN";
+        recognition.interimResults = true;
+        recognition.continuous = true;
+        recognition.onresult = (event) => {
+          let finalText = "";
+          let interim = "";
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const result = event.results[i];
+            if (result.isFinal) finalText += result[0].transcript;
+            else interim += result[0].transcript;
+          }
+          $("messageInput").value = finalText || interim;
+          $("messageInput").dataset.voice = "1";
+        };
+        recognition.onerror = () => {
+          voiceActive = false;
+          $("voiceBtn").classList.remove("recording");
+        };
+        recognition.onend = () => {
+          voiceActive = false;
+          $("voiceBtn").classList.remove("recording");
+        };
+        recognition.start();
+        voiceActive = true;
+        $("voiceBtn").classList.add("recording");
+        $("messageInput").placeholder = "正在录音……说完再点一次 🎤 停止";
+      } else if (recognition) {
+        recognition.stop();
+      }
+    });
+
+    // ===== 用量显示 =====
+    function updateUsageLine(usage) {
+      if (!usage || !usage.total_tokens) {
+        $("usageLine").textContent = "";
+        return;
+      }
+      const price = currentAppSettings.price_per_mtok || 0;
+      const tokens = usage.total_tokens || 0;
+      let text = "本次会话 tokens：" + tokens;
+      if (price > 0) {
+        text += " · 估算费用约 ¥" + ((tokens / 1e6) * price).toFixed(3);
+      }
+      $("usageLine").textContent = text;
+    }
+
+    // ===== 默写模式 =====
+    $("compareBtn").addEventListener("click", openCompare);
+    $("closeCompareBtn").addEventListener("click", () =>
+      $("compareModal").classList.add("hidden")
+    );
+    async function openCompare() {
+      if (!sessionId) return;
+      $("reconstructionInput").value = "";
+      $("sourceText").textContent = "";
+      $("compareOutput").classList.add("hidden");
+      $("compareOutput").innerHTML = "";
+      $("sourceDetails").removeAttribute("open");
+      $("compareModal").classList.remove("hidden");
+      try {
+        const resp = await fetch(
+          "/api/session/source?session_id=" + encodeURIComponent(sessionId)
+        );
+        const data = await resp.json();
+        $("sourceText").textContent =
+          data.text ||
+          "（目录速建模式没有原文，将基于教练已有知识点评）";
+      } catch (err) {}
+    }
+    $("startCompareBtn").addEventListener("click", async () => {
+      const text = $("reconstructionInput").value.trim();
+      if (!text) return;
+      $("startCompareBtn").disabled = true;
+      const bubble = $("compareOutput");
+      bubble.classList.remove("hidden");
+      bubble.innerHTML = '<p class="hint">正在比对……</p>';
+      try {
+        const resp = await fetch("/api/session/compare", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId, reconstruction: text }),
+        });
+        const ok = await readStream(resp, bubble);
+        if (ok) {
+          appendUser("【默写重构】\n" + text);
+          const wrap = document.createElement("div");
+          wrap.className = "msg assistant";
+          wrap.innerHTML = '<div class="role">教练</div><div class="bubble"></div>';
+          wrap.querySelector(".bubble").innerHTML = bubble.innerHTML;
+          $("messages").appendChild(wrap);
+          attachRegenerate(wrap);
+          scrollToBottom();
+        }
+      } catch (err) {
+        bubble.textContent = "请求失败：" + err.message;
+      } finally {
+        $("startCompareBtn").disabled = false;
+      }
+    });
+
+    // ===== 薄弱点测验 =====
+    let currentQuiz = null;
+    $("closeQuizBtn").addEventListener("click", () =>
+      $("quizModal").classList.add("hidden")
+    );
+    async function openQuiz(bookName, chapterTitle) {
+      currentQuiz = { book_name: bookName, chapter_title: chapterTitle, questions: [], answers: {} };
+      $("quizModal").classList.remove("hidden");
+      $("quizMeta").textContent = bookName + " · " + chapterTitle + "（正在出题……）";
+      $("quizBody").innerHTML = "";
+      $("quizResult").classList.add("hidden");
+      $("quizResult").innerHTML = "";
+      try {
+        const resp = await fetch("/api/quiz/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ book_name: bookName, chapter_title: chapterTitle }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          $("quizMeta").textContent = data.error || "出题失败";
+          return;
+        }
+        currentQuiz.questions = data.questions || [];
+        $("quizMeta").textContent = bookName + " · " + chapterTitle;
+        renderQuiz();
+      } catch (err) {
+        $("quizMeta").textContent = "出题失败：" + err.message;
+      }
+    }
+    function renderQuiz() {
+      const box = $("quizBody");
+      box.innerHTML = "";
+      currentQuiz.questions.forEach((question, index) => {
+        const wrap = document.createElement("div");
+        wrap.className = "quiz-question";
+        const title = document.createElement("div");
+        title.className = "q-title";
+        title.textContent = index + 1 + ". " + question.question;
+        wrap.appendChild(title);
+        if (question.type === "choice") {
+          question.options.forEach((opt) => {
+            const label = document.createElement("div");
+            label.className = "quiz-option";
+            label.textContent = opt;
+            label.addEventListener("click", () => {
+              currentQuiz.answers[String(index + 1)] = opt;
+              Array.from(wrap.querySelectorAll(".quiz-option")).forEach((o) =>
+                o.classList.remove("selected")
+              );
+              label.classList.add("selected");
+            });
+            wrap.appendChild(label);
+          });
+        } else {
+          const input = document.createElement("textarea");
+          input.style.cssText =
+            "width:100%;min-height:64px;border:1px solid var(--border);border-radius:9px;padding:8px;font-size:14px;background:var(--card);color:var(--text);";
+          input.addEventListener("input", () => {
+            currentQuiz.answers[String(index + 1)] = input.value;
+          });
+          wrap.appendChild(input);
+        }
+        box.appendChild(wrap);
+      });
+    }
+    $("submitQuizBtn").addEventListener("click", async () => {
+      if (!currentQuiz || !currentQuiz.questions.length) return;
+      $("submitQuizBtn").disabled = true;
+      $("quizResult").classList.remove("hidden");
+      $("quizResult").innerHTML = '<p class="hint">正在批改……</p>';
+      try {
+        const resp = await fetch("/api/quiz/grade", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            questions: currentQuiz.questions,
+            answers: currentQuiz.answers,
+          }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          $("quizResult").textContent = data.error || "批改失败";
+          return;
+        }
+        $("quizResult").innerHTML = data.html || "";
+      } catch (err) {
+        $("quizResult").textContent = "批改失败：" + err.message;
+      } finally {
+        $("submitQuizBtn").disabled = false;
+      }
+    });
+
+    // ===== 间隔复习 =====
+    async function loadDueReviews() {
+      const box = $("dueReviews");
+      box.innerHTML = "";
+      try {
+        const resp = await fetch("/api/reviews/due");
+        const data = await resp.json();
+        if (!data.enabled) return;
+        if (!data.items.length) {
+          box.innerHTML = '<p class="hint">📅 今天没有到期复习（已开启间隔复习）。</p>';
+          return;
+        }
+        const title = document.createElement("h3");
+        title.textContent = "📅 今日待复习";
+        box.appendChild(title);
+        data.items.forEach((item) => {
+          const row = document.createElement("div");
+          row.className = "review-due-row";
+          const info = document.createElement("div");
+          info.textContent = item.book_name + " · " + item.chapter_title;
+          const actions = document.createElement("div");
+          actions.className = "r-actions";
+          [["忘了", 1], ["模糊", 2], ["掌握", 3]].forEach(([label, quality]) => {
+            const button = document.createElement("button");
+            button.textContent = label;
+            button.addEventListener("click", async () => {
+              button.disabled = true;
+              try {
+                await fetch("/api/reviews/record", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    book_name: item.book_name,
+                    chapter_title: item.chapter_title,
+                    quality,
+                  }),
+                });
+              } catch (err) {}
+              await loadDueReviews();
+            });
+            actions.appendChild(button);
+          });
+          row.appendChild(info);
+          row.appendChild(actions);
+          box.appendChild(row);
+        });
+      } catch (err) {}
+    }
+
+    // ===== 概念图谱 =====
+    async function loadConceptMap() {
+      const box = $("conceptMapContent");
+      box.innerHTML = "";
+      try {
+        const resp = await fetch("/api/summaries");
+        const data = await resp.json();
+        const books = data.books || [];
+        if (!books.length) {
+          box.innerHTML = '<p class="hint">还没有学习总结。先学习并生成总结，概念会自动汇总到这里。</p>';
+          return;
+        }
+        books.forEach((book) => {
+          const group = document.createElement("div");
+          group.className = "book-group";
+          const title = document.createElement("h3");
+          title.textContent = "📖 " + book.book_name;
+          group.appendChild(title);
+
+          const tags = document.createElement("div");
+          const seen = new Set();
+          let hasConcept = false;
+          book.summaries.forEach((item) => {
+            (item.concepts || []).forEach((concept) => {
+              const key = concept.term + concept.level;
+              if (seen.has(key)) return;
+              seen.add(key);
+              hasConcept = true;
+              const tag = document.createElement("span");
+              tag.className =
+                "concept-tag " + (concept.level === "掌握" ? "mastered" : "weak");
+              tag.textContent = concept.term + " · " + concept.level;
+              tag.title = item.chapter_title;
+              tags.appendChild(tag);
+            });
+          });
+          if (!hasConcept) {
+            const hint = document.createElement("p");
+            hint.className = "hint";
+            hint.textContent = "这本书还没有概念清单。";
+            group.appendChild(hint);
+          } else {
+            group.appendChild(tags);
+          }
+
+          const extractBtn = document.createElement("button");
+          extractBtn.type = "button";
+          extractBtn.textContent = "⚡ 补充提取概念";
+          extractBtn.style.cssText =
+            "margin-top:10px;padding:6px 12px;border:1px solid var(--border);background:#fff;border-radius:8px;cursor:pointer;font-size:13px;";
+          extractBtn.addEventListener("click", async () => {
+            extractBtn.disabled = true;
+            extractBtn.textContent = "正在提取（可能需要一会儿）……";
+            try {
+              const resp = await fetch("/api/concept-map", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ book_name: book.book_name }),
+              });
+              const result = await resp.json();
+              if (!resp.ok) {
+                extractBtn.textContent = result.error || "提取失败";
+                extractBtn.disabled = false;
+                return;
+              }
+              await loadConceptMap();
+            } catch (err) {
+              extractBtn.textContent = "提取失败";
+              extractBtn.disabled = false;
+            }
+          });
+          group.appendChild(extractBtn);
+          box.appendChild(group);
+        });
+      } catch (err) {
+        box.textContent = "读取概念图谱失败：" + err.message;
+      }
+    }
 
     loadShelf();
