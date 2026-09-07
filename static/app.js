@@ -980,42 +980,87 @@
     // ===== 语音复述 =====
     let recognition = null;
     let voiceActive = false;
+    function voiceHint(text) {
+      const line = $("usageLine");
+      if (line) line.textContent = text || "";
+    }
+    function stopRecording(hint) {
+      voiceActive = false;
+      const button = $("voiceBtn");
+      if (button) {
+        button.classList.remove("recording");
+        button.textContent = "🎤";
+        button.title = "语音复述（说话转文字，发送后教练点评）";
+      }
+      const input = $("messageInput");
+      if (input) input.placeholder = "输入你的理解，教练会追问、给反例、检查逻辑……";
+      if (hint) voiceHint(hint);
+    }
     $("voiceBtn").addEventListener("click", () => {
       const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SR) {
-        $("messageInput").placeholder = "当前环境不支持语音，请在 Chrome/Safari 中使用";
+        voiceHint(
+          "当前窗口不支持语音识别：请用 Safari/Chrome 打开网页版使用（局域网手机访问需先部署到 HTTPS 云端）。"
+        );
         return;
       }
-      if (!voiceActive) {
-        recognition = new SR();
-        recognition.lang = "zh-CN";
-        recognition.interimResults = true;
-        recognition.continuous = true;
-        recognition.onresult = (event) => {
-          let finalText = "";
-          let interim = "";
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const result = event.results[i];
-            if (result.isFinal) finalText += result[0].transcript;
-            else interim += result[0].transcript;
-          }
-          $("messageInput").value = finalText || interim;
-          $("messageInput").dataset.voice = "1";
-        };
-        recognition.onerror = () => {
-          voiceActive = false;
-          $("voiceBtn").classList.remove("recording");
-        };
-        recognition.onend = () => {
-          voiceActive = false;
-          $("voiceBtn").classList.remove("recording");
-        };
-        recognition.start();
+      if (voiceActive) {
+        try {
+          recognition.stop();
+        } catch (err) {}
+        return;
+      }
+      recognition = new SR();
+      recognition.lang = "zh-CN";
+      recognition.interimResults = true;
+      recognition.continuous = true;
+      recognition.maxAlternatives = 1;
+      recognition.onstart = () => {
         voiceActive = true;
-        $("voiceBtn").classList.add("recording");
-        $("messageInput").placeholder = "正在录音……说完再点一次 🎤 停止";
-      } else if (recognition) {
-        recognition.stop();
+        const button = $("voiceBtn");
+        button.classList.add("recording");
+        button.textContent = "⏹";
+        button.title = "点击停止录音";
+        voiceHint("🎤 正在录音……说完了点 ⏹ 停止");
+        $("messageInput").placeholder = "正在听你说……";
+      };
+      recognition.onresult = (event) => {
+        let finalText = "";
+        let interim = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          if (result.isFinal) finalText += result[0].transcript;
+          else interim += result[0].transcript;
+        }
+        const value = finalText || interim;
+        if (value) {
+          $("messageInput").value = value;
+          $("messageInput").dataset.voice = "1";
+        }
+      };
+      recognition.onerror = (event) => {
+        const name = (event && event.error) || "unknown";
+        stopRecording(
+          name === "not-allowed" || name === "service-not-allowed"
+            ? "❌ 麦克风/语音权限被拒绝：请到「系统设置 → 隐私与安全性 → 麦克风 / 语音识别」允许 DFL Coach。"
+            : "❌ 语音识别出错（" + name + "）：请重试，或改用 Safari/Chrome 网页版。"
+        );
+      };
+      recognition.onend = () => {
+        const input = $("messageInput");
+        if (voiceActive) {
+          voiceHint(
+            input && input.value
+              ? "已转成文字，点「发送」后教练会点评你的口头复述。"
+              : "未识别到声音，请确认麦克风已开启后重试。"
+          );
+        }
+        stopRecording();
+      };
+      try {
+        recognition.start();
+      } catch (err) {
+        stopRecording("无法启动语音识别：" + err.message + "（请检查麦克风权限）");
       }
     });
 
