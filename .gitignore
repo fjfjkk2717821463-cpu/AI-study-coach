@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 本地配置与密钥
+.env
+config.local.json
+
+# 本地运行数据
+my_bookshelf.json
+summaries/
+sessions/
+
+# IDE
+.idea/
+.vscode/
+
+# macOS
+.DS_Store
+
+# PyInstaller 打包产物
+build/
+dist/
+*.spec
+release/
+*.zip
+打包产物/
+旧版本存档/
+
+# 参赛与进校材料：含个人信息、作品材料与演示视频，不进入公开仓库
+大赛申报/
+进校材料/
+
+# 大体积媒体（如需公开演示视频，请单独上传到 Releases 或网盘）
+*.mp4
+*.webm
+*.mov
+*.aiff

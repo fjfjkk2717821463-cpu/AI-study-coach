@@ -1,0 +1,762 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DFL Coach</title>
+  <meta name="theme-color" content="#a31f34">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+  <script>
+    (function () {
+      var t = localStorage.getItem("dfc-theme");
+      if (t !== "light" && t !== "dark") {
+        t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
+  <style>
+    :root {
+      --bg: #fafafa;
+      --surface: #f7f7f7;
+      --card: #ffffff;
+      --text: #111111;
+      --muted: #6b6b6b;
+      --border: #e4e4e4;
+      --accent: #a31f34;
+      --accent-hover: #8a1a2c;
+      --accent-soft: #f6edef;
+      --user-bubble: #f4f4f4;
+      --assistant-bubble: #ffffff;
+      --ok: #1f7a45;
+    }
+    html[data-theme="dark"] {
+      --bg: #121212;
+      --surface: #1e1e1e;
+      --card: #1a1a1a;
+      --text: #f0f0f0;
+      --muted: #9e9e9e;
+      --border: #2e2e2e;
+      --accent: #d1435b;
+      --accent-hover: #e05a70;
+      --accent-soft: #2a1a1e;
+      --user-bubble: #242424;
+      --assistant-bubble: #1a1a1a;
+      --ok: #4caf7d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+    .app { max-width: 960px; margin: 0 auto; padding: 28px 16px 60px; }
+    header { margin-bottom: 22px; }
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin: 0 0 6px;
+      display: flex;
+      align-items: center;
+    }
+    .mark {
+      display: inline-block;
+      width: 11px;
+      height: 11px;
+      border-radius: 2px;
+      background: var(--accent);
+      margin-right: 10px;
+      flex: 0 0 auto;
+    }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .sub { color: var(--muted); margin: 0; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: none;
+    }
+    .tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+    .common-row { margin-bottom: 10px; }
+    .common-row label { margin-top: 0; }
+    .tabs button {
+      flex: 1;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 15px;
+    }
+    .tabs button.active {
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-color: var(--accent);
+      font-weight: 600;
+    }
+    label { display: block; margin: 14px 0 6px; font-weight: 600; font-size: 14px; }
+    input, select, textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 15px;
+      font-family: inherit;
+      background: var(--card);
+    }
+    textarea { min-height: 130px; resize: vertical; }
+    .hidden { display: none !important; }
+    button.primary {
+      margin-top: 18px;
+      padding: 11px 18px;
+      background: var(--accent);
+      color: #fff;
+      border: 0;
+      border-radius: 6px;
+      font-size: 15px;
+      cursor: pointer;
+    }
+    button.primary:hover { background: var(--accent-hover); }
+    button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .error { color: #a31f34; margin-top: 12px; font-size: 14px; }
+    .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+
+    #chatSection { display: flex; flex-direction: column; }
+    #messages { min-height: 320px; max-height: 62vh; overflow-y: auto; padding: 6px 2px; }
+    .msg { margin-bottom: 18px; }
+    .msg .role {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .msg .bubble {
+      padding: 12px 14px;
+      border-radius: 6px;
+      background: var(--assistant-bubble);
+      border: 1px solid var(--border);
+      overflow-wrap: anywhere;
+    }
+    .msg.user .bubble { background: var(--user-bubble); border-color: #f6edef; }
+    .bubble > :first-child { margin-top: 0; }
+    .bubble > :last-child { margin-bottom: 0; }
+    .bubble pre {
+      background: #1a1a1a;
+      color: #e4e4e4;
+      padding: 12px;
+      border-radius: 6px;
+      overflow-x: auto;
+    }
+    .bubble code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.9em;
+    }
+    .bubble p code, .bubble li code {
+      background: #f1f1f1;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+    .bubble blockquote {
+      border-left: 3px solid var(--accent);
+      margin: 0;
+      padding: 4px 12px;
+      color: var(--muted);
+      background: #f7f7f7;
+      border-radius: 0 8px 8px 0;
+    }
+    .bubble table { border-collapse: collapse; width: 100%; }
+    .bubble th, .bubble td { border: 1px solid var(--border); padding: 7px 9px; text-align: left; }
+    .composer {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      border-top: 1px solid var(--border);
+      padding-top: 14px;
+      margin-top: 6px;
+    }
+    .composer textarea { flex: 1; min-height: 52px; max-height: 180px; }
+    .composer button { padding: 10px 18px; white-space: nowrap; }
+    .actions { display: flex; gap: 10px; margin-top: 12px; }
+    .actions button {
+      padding: 9px 14px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .summary-note {
+      background: #fbf3f4;
+      border-color: #e8c9cf;
+    }
+    .header-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+    .header-actions button {
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .back-row { margin-bottom: 16px; }
+    .back-row button {
+      padding: 7px 12px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .book-group { margin-bottom: 22px; }
+    .book-group h3 { margin: 0 0 10px; }
+    .summary-item {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      background: var(--card);
+    }
+    .summary-item summary {
+      cursor: pointer;
+      padding: 10px 12px;
+      font-weight: 600;
+      list-style: none;
+    }
+    .summary-item summary::-webkit-details-marker { display: none; }
+    .summary-item .summary-body { padding: 0 12px 12px; }
+    .shelf-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      background: var(--card);
+    }
+    .shelf-row .shelf-name { font-weight: 600; word-break: break-all; }
+    .shelf-row .shelf-path { color: var(--muted); font-size: 12px; word-break: break-all; }
+    .shelf-row button {
+      flex: 0 0 auto;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      border-radius: 8px;
+      cursor: pointer;
+      color: #a31f34;
+    }
+    .add-book { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 16px; }
+    .web-import { margin-top: 0; border-top: 0; padding-top: 0; }
+    .empty-hint { color: var(--muted); font-size: 14px; }
+    .chapter-wrap { position: relative; }
+    .chapter-menu {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% + 4px);
+      max-height: 240px;
+      overflow-y: auto;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+      z-index: 20;
+      padding: 4px;
+    }
+    .chapter-menu .cm-item {
+      padding: 8px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      word-break: break-all;
+    }
+    .chapter-menu .cm-item:hover, .chapter-menu .cm-item.selected { background: #f6edef; }
+    .session-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      background: var(--card);
+    }
+    .session-row .s-info { min-width: 0; flex: 1; }
+    .session-row .s-subject { font-weight: 600; word-break: break-all; }
+    .session-row .s-meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .session-row .s-actions { display: flex; gap: 6px; flex: none; }
+    .session-row .s-actions button {
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .session-row .s-actions .danger { color: #a31f34; }
+    .regenerate-btn {
+      margin-top: 6px;
+      padding: 4px 10px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .modal { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); display: flex; align-items: center; justify-content: center; z-index: 100; }
+    .modal-card {
+      width: min(460px, 92vw);
+      max-height: 86vh;
+      overflow-y: auto;
+      background: var(--card);
+      border-radius: 8px;
+      padding: 24px;
+    }
+    .modal-card h2 { margin: 0 0 14px; font-size: 20px; }
+    .modal-card label { display: block; font-size: 14px; margin: 12px 0 5px; }
+    .modal-card input, .modal-card select {
+      width: 100%;
+      padding: 9px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    .modal-actions { display: flex; gap: 10px; margin-top: 18px; }
+    .modal-actions button { flex: 1; padding: 10px; border-radius: 6px; cursor: pointer; font-size: 14px; border: 1px solid var(--border); background: var(--card); }
+    .modal-actions .primary { background: var(--accent); color: #fff; border: 0; }
+    .settings-hint { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+    .usage-line { color: var(--muted); font-size: 12px; margin: 4px 2px 8px; min-height: 16px; }
+    .voice-btn {
+      border: 1px solid var(--border);
+      background: var(--card);
+      border-radius: 6px;
+      cursor: pointer;
+      padding: 0 12px;
+      font-size: 13.5px;
+      font-family: inherit;
+      color: var(--text);
+      height: 42px;
+      white-space: nowrap;
+    }
+    .voice-btn.recording { background: #f6edef; border-color: #a31f34; }
+    .quiz-question { margin-bottom: 16px; }
+    .quiz-question .q-title { font-weight: 600; margin-bottom: 6px; }
+    .quiz-option {
+      display: block;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      background: var(--card);
+    }
+    .quiz-option.selected { border-color: var(--accent); background: var(--user-bubble); }
+    .concept-tag {
+      display: inline-block;
+      margin: 3px 4px 3px 0;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 13px;
+      border: 1px solid var(--border);
+      background: var(--card);
+    }
+    .concept-tag.mastered { border-color: #1f7a45; color: #1f7a45; }
+    .concept-tag.weak { border-color: #a31f34; color: #8a1a2c; }
+    .review-due-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      background: var(--card);
+    }
+    .review-due-row .r-actions { display: flex; gap: 6px; flex: none; }
+    .review-due-row .r-actions button {
+      padding: 5px 9px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .banner {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: #a31f34;
+      color: #fff;
+      padding: 8px 14px;
+      text-align: center;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+    .banner a { color: #fff; font-weight: 600; }
+    .banner button { background: rgba(255,255,255,0.2); border: 0; color: #fff; border-radius: 6px; cursor: pointer; padding: 2px 8px; }
+    .onboarding {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.72);
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .onboarding-card {
+      width: min(440px, 92vw);
+      background: var(--card);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 26px;
+    }
+    .onboarding-card h2 { margin: 0 0 12px; }
+    .onboarding-card .step { font-size: 15px; margin: 10px 0; }
+    .onboarding-actions { display: flex; justify-content: space-between; margin-top: 18px; }
+    .onboarding-actions button {
+      padding: 8px 14px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .onboarding-actions .primary { background: var(--accent); color: #fff; border: 0; }
+    .compare-grid { display: flex; gap: 10px; }
+    .compare-grid textarea {
+      flex: 1;
+      min-height: 220px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      font-size: 14px;
+      font-family: inherit;
+      background: var(--card);
+      color: var(--text);
+      resize: vertical;
+    }
+    .version-tag { font-size: 12.5px; color: var(--muted); font-weight: 400; margin-left: 8px; align-self: center; }
+    .class-join { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+    .class-join input { min-width: 200px; }
+    .class-card {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px 14px;
+      margin-top: 12px;
+      font-size: 14px;
+    }
+    .task-item {
+      border-left: 3px solid var(--accent);
+      background: var(--assistant-bubble);
+      border-radius: 0 10px 10px 0;
+      padding: 10px 12px;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+    .retell-result {
+      margin-top: 14px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px 16px;
+    }
+    .retell-total { display: flex; align-items: baseline; gap: 10px; }
+    .retell-total strong { font-size: 26px; }
+    .retell-dim { margin-top: 12px; }
+    .retell-dim-head { display: flex; justify-content: space-between; font-size: 14px; }
+    .retell-score { color: var(--muted); }
+    .retell-bar { height: 6px; background: var(--border); border-radius: 99px; margin: 6px 0; }
+    .retell-bar > span { display: block; height: 100%; border-radius: 99px; background: var(--accent); }
+    .retell-quote {
+      font-size: 13px;
+      color: var(--muted);
+      background: var(--assistant-bubble);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      padding: 6px 10px;
+      margin-top: 6px;
+    }
+    .retell-quote.muted { border-left-color: var(--border); }
+    .retell-summary { font-size: 14px; margin-top: 12px; }
+    .ok { color: #1f7a45; font-size: 13px; }
+    @media (max-width: 640px) {
+      .app { padding: 16px 10px 40px; }
+      h1 { font-size: 24px; }
+      .card { padding: 16px; }
+      .header-actions { gap: 8px; }
+      .header-actions button { flex: 1 1 auto; font-size: 13px; padding: 8px 6px; }
+      input, select, textarea { font-size: 16px; }
+      .composer { flex-direction: column; align-items: stretch; }
+      .composer textarea { min-height: 48px; }
+      .composer button { width: 100%; }
+      .actions { flex-wrap: wrap; }
+      .actions button { flex: 1 1 auto; }
+      .shelf-row { flex-direction: column; align-items: stretch; }
+      .shelf-row button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1><span class="mark" aria-hidden="true"></span>DFL Coach<span id="versionTag" class="version-tag"></span></h1>
+      <p class="sub">先带你准确学懂一个概念，再用费曼式复述、反例和默写重构来检测巩固，而不是只「看懂了」。</p>
+      <div class="header-actions">
+        <button id="historyBtn" type="button">继续上次学习</button>
+        <button id="reviewBtn" type="button">复习所有总结</button>
+        <button id="conceptMapBtn" type="button">概念图谱</button>
+        <button id="classBtn" type="button">我的班级</button>
+        <button id="shelfBtn" type="button">管理书架</button>
+        <button id="settingsBtn" type="button">模型设置</button>
+        <button id="themeBtn" type="button">深色</button>
+      </div>
+    </header>
+
+    <section id="setup" class="card">
+      <div class="tabs">
+        <button id="bookTab" class="active" type="button">电子书模式</button>
+        <button id="outlineTab" type="button">目录速建模式</button>
+      </div>
+
+      <div class="common-row">
+        <label for="explainLevel">讲解强度</label>
+        <select id="explainLevel">
+          <option value="high" selected>多讲解（先教再问）</option>
+          <option value="medium">适中（讲解与追问并重）</option>
+          <option value="low">少讲解（以追问为主）</option>
+        </select>
+      </div>
+
+      <div id="bookSetup">
+        <label for="bookSelect">选择书架上的书籍</label>
+        <select id="bookSelect"></select>
+        <label for="chapterSelect">选择章节</label>
+        <select id="chapterSelect"></select>
+        <label for="chapterLevel">章节层级</label>
+        <select id="chapterLevel">
+          <option value="auto" selected>自动（推荐）</option>
+          <option value="chapter">大章节</option>
+          <option value="section">小章节</option>
+        </select>
+        <label for="chapterQuery">或输入章节关键词</label>
+        <div class="chapter-wrap">
+          <input id="chapterQuery" placeholder="搜索章节，例如：第四章 / 熵 / 4">
+          <div id="chapterMenu" class="chapter-menu hidden"></div>
+        </div>
+        <p class="hint">还没有书籍？点击上方「管理书架」，直接导入 .txt / .md / .pdf / .epub 或网页链接。</p>
+      </div>
+
+      <div id="outlineSetup" class="hidden">
+        <label for="outlineTitle">学习主题 / 章节标题</label>
+        <input id="outlineTitle" placeholder="例如：热力学第二定律">
+        <label for="outlineContent">章节目录或内容要点</label>
+        <textarea id="outlineContent" placeholder="粘贴目录、大纲或你要掌握的知识点"></textarea>
+      </div>
+
+      <button id="startBtn" class="primary" type="button">开始学习</button>
+      <p id="setupError" class="error"></p>
+    </section>
+
+    <section id="bookshelfSection" class="card hidden">
+      <div class="back-row">
+        <button id="bookshelfBackBtn" type="button">← 返回开始学习</button>
+      </div>
+      <h2>管理书架</h2>
+      <p class="hint">直接导入 .txt、.md、.pdf 或 .epub 书籍，文件会复制到本机数据目录中。</p>
+      <div id="shelfList"></div>
+      <div class="add-book">
+        <label for="bookFileInput">选择书籍文件</label>
+        <input id="bookFileInput" type="file" accept=".txt,.md,.pdf,.epub">
+        <label for="bookNameInput">书籍名称（可选）</label>
+        <input id="bookNameInput" placeholder="留空则使用文件名">
+        <button id="addBookBtn" class="primary" type="button">添加到书架</button>
+      </div>
+      <div class="add-book web-import">
+        <label for="webUrlInput">或从网页导入</label>
+        <input id="webUrlInput" placeholder="https://example.com/article">
+        <input id="webNameInput" placeholder="名称（可选，默认使用网页标题）">
+        <button id="importWebBtn" class="primary" type="button">导入网页</button>
+      </div>
+      <p id="shelfError" class="error"></p>
+    </section>
+
+    <section id="historySection" class="card hidden">
+      <div class="back-row">
+        <button id="historyBackBtn" type="button">← 返回开始学习</button>
+      </div>
+      <h2>继续上次学习</h2>
+      <p class="hint">搜索、继续、重命名或删除之前保存的会话。</p>
+      <input id="sessionSearch" placeholder="搜索会话标题……">
+      <div id="sessionList"></div>
+      <p id="historyError" class="error"></p>
+    </section>
+
+    <section id="reviewSection" class="card hidden">
+      <div class="back-row">
+        <button id="reviewBackBtn" type="button">← 返回开始学习</button>
+      </div>
+      <h2>学习总结复习中心</h2>
+      <div id="dueReviews"></div>
+      <div id="reviewContent"></div>
+    </section>
+
+    <section id="conceptMapSection" class="card hidden">
+      <div class="back-row">
+        <button id="conceptMapBackBtn" type="button">← 返回开始学习</button>
+      </div>
+      <h2>概念图谱</h2>
+      <p class="hint">把各章节总结里的概念按掌握程度汇总；早期没有概念清单的总结可一键补充提取。</p>
+      <div id="conceptMapContent"></div>
+    </section>
+
+    <section id="classSection" class="card hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+        <h2 style="margin:0;">我的班级</h2>
+        <button id="classBackBtn" type="button">← 返回开始学习</button>
+      </div>
+      <p class="hint">
+        加入班级后，你每完成一章并点「生成总结」，学习摘要（章节、概念掌握情况、学习时长）会自动同步给授课教师，
+        用于教学指导。只同步摘要和少量原话，不同步完整对话。
+      </p>
+      <div class="class-join">
+        <input id="classCodeInput" placeholder="输入老师给的 6 位班级码" autocomplete="off">
+        <input id="classNameInput" placeholder="显示名（学号后四位或昵称）" autocomplete="off">
+        <button id="joinClassBtn" class="primary" type="button">加入班级</button>
+      </div>
+      <p id="classError" class="error"></p>
+      <div id="classList"></div>
+      <h3 style="margin-top:20px;font-size:16px;">待完成任务</h3>
+      <div id="classTasks"></div>
+      <p class="hint">老师从这里进入教师端：<a href="/teacher">/teacher</a></p>
+    </section>
+
+    <section id="chatSection" class="card hidden">
+      <p id="usageLine" class="usage-line"></p>
+      <div id="messages"></div>
+      <div class="composer">
+        <button id="voiceBtn" class="voice-btn" type="button" title="语音复述（说话转文字，发送后教练点评）">语音</button>
+        <textarea id="messageInput" placeholder="输入你的理解，教练会追问、给反例、检查逻辑……"></textarea>
+        <button id="sendBtn" class="primary" type="button">发送</button>
+      </div>
+      <div class="actions">
+        <button id="retellBtn" type="button">复述检测</button>
+        <button id="compareBtn" type="button">默写模式</button>
+        <button id="summaryBtn" type="button">生成总结</button>
+        <button id="endBtn" type="button">结束并保存会话</button>
+      </div>
+    </section>
+
+    <div id="settingsModal" class="modal hidden">
+      <div class="modal-card">
+        <h2>模型与 API 设置</h2>
+        <label for="providerSelect">服务商</label>
+        <select id="providerSelect"></select>
+        <label for="baseUrlInput">接口地址（OpenAI 兼容）</label>
+        <input id="baseUrlInput" placeholder="https://api.example.com/v1/chat/completions">
+        <label for="modelInput">模型名称</label>
+        <input id="modelInput" placeholder="例如：deepseek-chat / gpt-4o-mini">
+        <label for="modelKeyInput">API Key（留空则继续使用已保存的密钥）</label>
+        <input id="modelKeyInput" type="password" placeholder="sk-...">
+        <label><input id="spacedReviewToggle" type="checkbox"> 开启间隔复习（按遗忘曲线安排复习时间）</label>
+        <label for="priceInput">每百万 token 费用（元，用于估算花费，可不填）</label>
+        <input id="priceInput" type="number" min="0" step="0.1" placeholder="例如：2">
+        <p id="settingsHint" class="settings-hint"></p>
+        <div class="modal-actions">
+          <button id="closeSettingsBtn" type="button">取消</button>
+          <button id="saveSettingsBtn" class="primary" type="button">保存</button>
+        </div>
+        <p id="settingsError" class="error"></p>
+      </div>
+    </div>
+
+    <div id="quizModal" class="modal hidden">
+      <div class="modal-card">
+        <h2>薄弱点测验</h2>
+        <p id="quizMeta" class="hint"></p>
+        <div id="quizBody"></div>
+        <div class="modal-actions">
+          <button id="closeQuizBtn" type="button">关闭</button>
+          <button id="submitQuizBtn" class="primary" type="button">提交批改</button>
+        </div>
+        <div id="quizResult" class="summary-body bubble hidden"></div>
+      </div>
+    </div>
+
+    <div id="compareModal" class="modal hidden">
+      <div class="modal-card">
+        <h2>默写模式</h2>
+        <p class="hint">合上原文，凭记忆把本章内容写出来；写完后再展开原文点「开始比对」。</p>
+        <textarea id="reconstructionInput" style="width:100%;min-height:220px;border:1px solid var(--border);border-radius: 6px;padding:10px;font-size:14px;font-family:inherit;background:var(--card);color:var(--text);" placeholder="凭记忆写下你的重构……"></textarea>
+        <details id="sourceDetails" class="summary-item" style="margin-top:12px;">
+          <summary>显示原文（写完再看）</summary>
+          <div id="sourceText" class="summary-body bubble"></div>
+        </details>
+        <div class="modal-actions">
+          <button id="closeCompareBtn" type="button">取消</button>
+          <button id="startCompareBtn" class="primary" type="button">开始比对</button>
+        </div>
+        <div id="compareOutput" class="summary-body bubble hidden"></div>
+      </div>
+    </div>
+
+    <div id="retellModal" class="modal hidden">
+      <div class="modal-card">
+        <h2>复述检测</h2>
+        <p class="hint">
+          用自己的话讲清楚这一章（也可以按住麦克风说）。不要照读教材原文——
+          系统会检查重合度，照读会被判定为「没有用自己的话」。
+        </p>
+        <textarea id="retellInput" style="width:100%;min-height:180px;border:1px solid var(--border);border-radius: 6px;padding:10px;font-size:14px;font-family:inherit;background:var(--card);color:var(--text);" placeholder="例如：这一章说的是……它为什么成立……什么情况下不成立……"></textarea>
+        <div class="modal-actions">
+          <select id="retellPhase" style="flex:0 0 auto;">
+            <option value="学习前">学习前</option>
+            <option value="学习中" selected>学习中</option>
+            <option value="学习后">学习后</option>
+          </select>
+          <button id="closeRetellBtn" type="button">取消</button>
+          <button id="submitRetellBtn" class="primary" type="button">提交评分</button>
+        </div>
+        <p id="retellError" class="error"></p>
+        <div id="retellResult" class="hidden"></div>
+      </div>
+    </div>
+
+    <div id="updateBanner" class="banner hidden">
+      <span id="updateText"></span>
+      <a id="updateLink" href="#" target="_blank" rel="noopener">查看</a>
+      <button id="dismissUpdateBtn" type="button">×</button>
+    </div>
+
+    <div id="onboarding" class="onboarding hidden">
+      <div class="onboarding-card">
+        <h2 id="obTitle"></h2>
+        <div id="obBody"></div>
+        <div class="onboarding-actions">
+          <button id="obSkip" type="button">跳过</button>
+          <button id="obNext" class="primary" type="button">下一步</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script src="/static/app.js"></script>
+<script>
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/static/sw.js").catch(function () {});
+  }
+</script>
+</body>
+</html>
