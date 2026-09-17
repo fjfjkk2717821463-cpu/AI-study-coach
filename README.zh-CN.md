@@ -157,6 +157,33 @@ python coach_v4.py
 - `classroom_mgr.py`：班级、成员、任务与学情摘要的数据层（教师端与学生同步共用）
 - `advice_mgr.py`：教师端教学建议的提示词、解析与数字校验
 - `templates/teacher.html`、`static/teacher.js`：教师端总览页（指标卡、薄弱概念排行、任务进度、教学建议卡片）
+- `tools/corpus_report.py`：语料库统计（章节切分结果与规模）
+- `tools/secret_scan.py`：密钥与敏感信息扫描（工作区、提交暂存区、打包产物、Git 全量历史）
+- `tools/rotate_api_key.py`：安全轮换本机保存的 API Key（备份、校验、失败自动回滚）
+- `.githooks/pre-commit`：提交前自动调用密钥扫描，发现高危内容即拦截
+
+## 开发与维护
+
+**启用提交前密钥扫描**（每个克隆执行一次即可）：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+之后每次提交都会自动扫描暂存内容；确认是误报时可用 `git commit --no-verify` 跳过。
+
+**手动全量检查**（工作区 + 打包产物 + Git 历史）：
+
+```bash
+python tools/secret_scan.py --all
+```
+
+**检查或轮换 API Key**：
+
+```bash
+python tools/rotate_api_key.py --check   # 只检查当前密钥是否可用
+python tools/rotate_api_key.py           # 交互式轮换，验证失败会自动回滚
+```
 
 ## 数据文件
 
