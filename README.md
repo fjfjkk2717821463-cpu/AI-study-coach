@@ -1,183 +1,315 @@
-# DFL Coach
+# AI-Study-Coach
 
-一个基于 DeepSeek API 的 AI 辅助学习助手。DFL 即 **D**eliberate **F**riction **L**earning（刻意摩擦学习法）。它不直接给你答案，而是用「刻意摩擦」的方式带你完成费曼式学习：先建立框架，再通过反例、追问、口头复述和默写重构来巩固知识。
+> English | [中文](README.zh-CN.md)
 
-## 功能
+**Teach first, test later.** An AI study coach that first guides you through accurate, source-based concept learning and then consolidates it with Feynman-style output practice — packaged as a desktop app, a mobile-friendly web app, and a cloud-deployable service, with bookshelf, long-term memory, and a unified review center. Beyond the student side, it includes a **teacher dashboard** that turns learning evidence into next-class decisions, forming a student–teacher–machine loop.
 
-- 两阶段学习流程：先「概念精讲」保证准确输入，再「费曼检测」通过输出加深理解。
-- 文档 Markdown 化：EPUB、网页和 PDF 内容自动转成保留标题、列表、表格的 Markdown。
-- 电子书模式：读取 `.txt` / `.md` / `.pdf` / `.epub` 电子书，自动切分章节，逐章学习并严格对照原文。
-- 章节层级：可选择自动、大章节或小章节三种切分方式，适应不同的阅读需求；章节框支持输入即搜的下拉列表。
-- 讲解强度：可选择多讲解、适中或少讲解，按自己的学习偏好调整教练风格。
-- 目录速建模式：没有电子书时，粘贴目录或要点即可开始学习。
-- 书架管理：在 App 内直接导入 `.txt` / `.md` / `.pdf` / `.epub` 书籍，无需命令行。
-- 网页导入：粘贴网址即可抓取网页正文并加入书架，像学电子书一样学习网站内容。
-- 学习总结：一键生成结构化总结，下次学习同一章节时自动回顾薄弱点。
-- 会话记录：退出时自动保存本次对话，避免学习过程丢失。
-- 继续学习：历史会话可以搜索、重命名、删除，并一键继续上次的学习。
-- 重新生成：对教练的回答不满意时，一键重新生成。
-- 多模型支持：设置窗口里可选择 DeepSeek、OpenAI、智谱、通义千问、Kimi、硅基流动或任意 OpenAI 兼容接口，并自定义模型名称和 API Key。
-- 复习中心：所有学习总结按书籍分类汇总，方便统一查看和复习。
-- 薄弱点测验：复习中心里每份总结旁有「出题考我」按钮，AI 针对薄弱点出题并批改；总结文本原样保留。
-- 间隔复习：可选的个性化选项，开启后按遗忘曲线安排复习时间，到期在复习中心提醒。
-- 语音复述：按住麦克风说话，自动转文字并让教练点评口头复述。
-- 默写模式：合上原文凭记忆重构，再与原文逐段比对。
-- 复述检测：用自己的话讲一遍，按概念覆盖、准确性、逻辑与边界、通俗化表达四个维度评分，每一分都引用你的原话；照读教材会被判定为"没有用自己的话"。
-- 达标判定：复述质量、默写覆盖、复习重测三项过两项，记为「已达标」，教师端看到的是达标率而不是"看过没有"。
-- 概念图谱：把各章节总结里的概念按「掌握 / 待巩固」汇总成图谱。
-- 用量显示：聊天框上方实时显示本次会话的 token 用量和估算费用。
-- 深色模式、首次使用引导、新版本提醒、PWA（可添加到手机主屏幕）。
+[![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-PolyForm%20Noncommercial-red)](#license)
+[![LLM](https://img.shields.io/badge/LLM-DeepSeek-536DFE)](https://www.deepseek.com/)
+[![Platforms](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Web%20%7C%20Mobile-orange)](#installation-and-quick-start)
 
-## 教师端（师-生-机协同）
+From Knowledge Anxiety to Building My Own AI Study Coach: A Pre-Freshman's Practice of "Deliberate Friction Learning"
 
-除了学生自己学习，DFL Coach 还有教师端，把学生的课后学习过程变成教师能用的教学信号。
+In an era where AI technology evolves at a breakneck pace, knowledge anxiety haunts almost every learner. As a pre-freshman facing upcoming university courses, my biggest fear was falling into the trap of "I get it at a glance, but fail when I use it." To find a truly effective learning method, I started with the Feynman Technique, combined it with large language models, and step by step refined a methodology I call **"Deliberate Friction Learning."** Eventually, I built a private AI study coach program with persistent memory, strict step-by-step guidance, support for multiple books, and a usable interface for both desktop and mobile use.
 
-1. 教师用浏览器打开 `/teacher`（本机为 <http://127.0.0.1:8000/teacher>），新建班级后系统会生成一个 6 位班级码。
-2. 学生在自己的 App 里点「🏫 我的班级」，输入班级码和显示名即可加入。
-3. 学生每完成一章并点「生成总结」，系统自动把**学习摘要**（章节、概念掌握情况、学习时长与少量复述原话）同步给教师——**不上传完整对话**。
-4. 教师端可以看到：班级人数与上报情况、**达标率**（三项证据过两项）、人均有效学习时长、薄弱概念排行（可展开学生原话）、任务进度，并一键生成「下次课讲哪几个概念、学生错在哪、课上怎么讲」的教学建议。
-5. 教师可以直接在页面上布置任务：选教材、多选章节、设置截止时间与学习要求，学生端立刻出现任务卡片；任务范围内全部章节达到「已达标」才算完成。
+This document is a complete record of the thinking, exploration, and implementation behind the project.
 
-教学建议里的每个数字都会与统计核对：模型写错的人数会被改回真实值，编造的概念和学生原话会被自动剔除；校验不通过时自动降级为纯统计版本，宁可少给建议，也不给没有依据的内容。建议可以编辑、可以拒绝，决定权始终在教师一侧。
+---
 
-数据默认保存在本机；学生没有加入班级时不会同步任何数据。
+## Screenshots
 
-关于两个口径的说明：任务进度里的「已学习」只表示学生完成过这一章的学习与总结，「已达标」要求复述评分达到 7 分（满分 12）、默写覆盖率过半、或复习重测通过三者中的两项。学习时长也分两个口径，页面显示的是有效学习时长（按交互间隔累计，单次上限 2 分钟），挂机时间不计入。
+![Main study view](docs/screenshots/chat.png)
 
-## 安装
+![Bookshelf](docs/screenshots/bookshelf.png)
 
-建议使用 Python 3.9+ 和虚拟环境。
+![Unified review center](docs/screenshots/review.png)
+
+![Teacher dashboard: mastery rate, weak concepts with student quotes, and assignment progress](docs/screenshots/teacher.png)
+
+![First-launch API key setup](docs/screenshots/setup.png)
+
+---
+
+## 1. The Starting Problem: How Do You Truly Learn a Concept in the Age of AI?
+
+Traditional learning makes it easy to fall for the "illusion of learning" — you read the material, highlight key points, and mistakenly believe you have mastered them. Real understanding is built through a cycle of learning by teaching: learn, output, expose gaps, go back, and fix them.
+
+The Feynman Technique was born for this, but its biggest pain point is not having a patient, available, and precise-questioning listener. AI solves this perfectly: zero emotional pressure, infinite patience, and the ability to play any role.
+
+However, just treating AI as a passive Q&A tool is dangerous. If answers come too easily, we lose the ability to think deeply. What I needed was a method that, within the safety net of AI, deliberately creates cognitive friction — having the AI actively challenge me, probe boundaries, and provide counterexamples, forging my knowledge like quenching steel.
+
+---
+
+## 2. The Method Core: Deliberate Friction Learning
+
+After much refinement, I settled on a two-phase loop that separates **accurate input** from **deep output**.
+
+### Phase One: Guided First Pass (Concept Teaching)
+
+Before any interrogation, the coach teaches the material accurately based on the source text:
+
+1. Build a knowledge map of the chapter.
+2. Explain each concept in order: definition → intuition → 2–3 examples → a counterexample or boundary condition → common misconceptions.
+3. End each concept with a light comprehension check, letting me choose to continue, get another example, or hear it again.
+
+### Phase Two: Feynman Consolidation (Testing)
+
+Only after I confirm initial understanding does the coach switch to output-based practice:
+
+1. **Recall & Explain** — close the book and explain the concept in plain language.
+2. **Counterexamples & Boundaries** — the coach gives a counterexample and asks when the concept fails.
+3. **Logic Visualization** — draw the reasoning chain and review it.
+4. **Multi-Dimensional Collision** — examiner questioning, stuffed-animal explanation, and recording review.
+5. **Reconstruction & Comparison** — rewrite from memory and compare section by section with the source text.
+
+The essence of this method: teach first, then test. The AI is a coach armed with the answer key, not an answer dispenser.
+
+---
+
+## 3. From Idea to Product: A Complete AI Study Coach System
+
+While off-the-shelf AI chat tools are powerful, they cannot actively guide me through a structured two-phase workflow, nor do they have long-term learning memory management. So I built my own solution using Python and the DeepSeek API — a study assistant that perfectly fits my needs.
+
+### Core design principles
+
+- **Guided workflow:** The program strictly follows the two-phase process — teach first, then test — and does not allow skipping.
+- **Long-term memory:** After each chapter, the AI generates a structured learning summary. The next time I study that chapter, the summary loads automatically and the coach first tests me on previous weak points.
+- **Multi-mode support:** I can import PDF/TXT e-books for precise source-text comparison, or use a rapid "Outline Mode" where I just paste a chapter outline without an e-book.
+
+### Full feature list
+
+#### Learning and coaching
+
+- **Deliberate Friction Learning engine:** A two-phase workflow with guided concept teaching, counterexamples, boundary probing, Feynman-style consolidation, and strict source-text comparison.
+- **Adjustable explanation intensity:** Choose between more explanation, balanced, or more questioning to fit different study needs.
+- **E-book mode:** Import `.txt`, `.md`, `.pdf`, or `.epub` files, automatically split chapters by Markdown headings and the EPUB's original table of contents, then retrieve a chapter by keyword such as `Chapter 4`, `熵`, or `4`.
+- **Structure-preserving input:** EPUB, web, and PDF content is converted to Markdown with headings, lists, tables, and links before study.
+- **Flexible chapter granularity:** Choose automatic, large-chapter, or small-section splitting to match different reading needs, with a search-as-you-type chapter picker.
+- **Outline mode:** Start learning with only a topic and an outline when no e-book is available.
+- **Streaming responses:** The coach's replies appear word by word, just like a modern chat assistant.
+- **Regenerate replies:** Rework the latest coach reply with one click when the first attempt misses the mark.
+- **Structured summaries:** Generate a summary of mastered concepts, remaining weaknesses, counterexamples, and next-step review suggestions.
+- **Weak-point review:** Saved summaries are automatically loaded the next time the same chapter is studied.
+- **Unified review center:** All learning summaries are grouped by book in one place for later review and revision.
+- **Weak-point quizzes:** A per-summary "quiz me" button turns weak points into questions the coach grades; the summary text itself is always preserved.
+- **Optional spaced review:** Opt-in scheduling that resurfaces chapters for review on a forgetting-curve-style interval.
+- **Voice retelling:** Record your spoken explanation and let the coach comment on gaps, errors, and hesitation.
+- **Reconstruction mode:** Rewrite the chapter from memory in a dedicated view, then compare section by section with the source text.
+- **Retell detection (four-dimension scoring):** Explain the chapter in your own words and get a 0–3 score on concept coverage, accuracy, reasoning and boundaries, and plain-language expression. Every score must cite a sentence you actually said, and heavy overlap with the source text caps the expression score — reading the textbook aloud does not count as explaining it.
+- **Mastery verdict (two of three):** A chapter counts as *mastered* when at least two of these hold: retell score ≥ 7/12, dictation coverage ≥ 50% (computed locally against the source text, no model involved), or a spaced-review retest at "mostly recalled". Teachers therefore see a **mastery rate**, not just "opened the chapter".
+- **Effective study time:** Time is accumulated per interaction with a 2-minute idle cap, so leaving the page open does not inflate the number.
+- **Concept map:** Concepts extracted from summaries are grouped by mastery level, per book.
+- **Usage display:** Token usage and estimated cost for the current session, with friendly error guidance.
+- **Dark mode, first-run onboarding, update notifications, and PWA support.**
+- **Continue previous sessions:** Saved conversations can be searched, renamed, deleted, and reopened from where they left off.
+- **Multi-model support:** Pick DeepSeek, OpenAI, Zhipu GLM, Qwen, Kimi, SiliconFlow, or any OpenAI-compatible endpoint, and set the model name and API key from the in-app settings dialog.
+
+#### For teachers (student–teacher–machine loop)
+
+- **Class dashboard:** Class size, reported students, mastery rate, effective study time, a weak-concept ranking that expands into the students' own words, and assignment progress with both "studied" and "mastered" counts.
+- **Assignments:** Pick a textbook, select chapters, set a due date and a learning requirement; students see the task card immediately, and a task counts as complete only when every chapter in scope is mastered.
+- **AI teaching suggestions with hard constraints:** One click produces what to teach next — typical misconception, how to open the explanation, a classroom activity, and a check question. Every number is reconciled against the dashboard, concepts must come from the weak-concept list, student quotes are copied verbatim, and when validation fails the system degrades to statistics only rather than inventing content. Teachers can adopt, edit, or reject each suggestion.
+
+#### Usability and distribution
+
+- **Desktop app for macOS and Windows:** A native desktop window wrapped with `pywebview`, without requiring a terminal.
+- **In-app API key setup:** Users enter their DeepSeek API key in the interface on first launch; no manual `.env` editing is needed.
+- **In-app bookshelf management:** Import books directly from the interface using a file picker, and remove books with one click.
+- **Web-page import:** Paste a URL to fetch the page text and add it to the bookshelf for chapter-based study.
+- **Mobile access over LAN:** Run the server on a computer and open it from a phone on the same Wi-Fi network.
+- **Cloud deployment support:** Ready-made `Dockerfile`, `render.yaml`, and `requirements-cloud.txt` make it deployable to Render, Railway, Fly.io, or any Docker-capable platform.
+- **Mobile-friendly web interface:** The interface is responsive and can be added to the iPhone home screen for an app-like experience.
+- **One-click packaging scripts:** `打包.command` for macOS and `打包.bat` for Windows build distributable desktop apps.
+
+#### Technical architecture
+
+- **Conversation memory:** A growing `messages` list preserves the current session.
+- **Long-term memory:** Independent JSON summary files are keyed by book and chapter.
+- **Session persistence:** Conversations are automatically saved after every message and on exit, so a crash or restart never loses progress; saved sessions can be listed and resumed.
+- **Markdown conversion pipeline:** EPUB, web, and PDF content is converted to structure-preserving Markdown before chapter splitting and prompting.
+- **Book processing:** Automatic chapter splitting based on common heading patterns, EPUB table-of-contents-aware splitting, keyword-based chapter retrieval, multi-encoding `.txt` support, PDF extraction via `pdfplumber` with `PyPDF2` fallback, and EPUB extraction via `EbookLib` and `BeautifulSoup`.
+- **User data directory:** Bookshelf, summaries, sessions, and API keys are stored in the operating system's user data directory, making the app safe to package and distribute.
+- **Decoupled modules:** Classroom and reporting data (`classroom_mgr.py`), mastery evidence and the mastery verdict (`mastery_mgr.py`), and teaching-suggestion generation with its numeric validation (`advice_mgr.py`) are separated from the Flask layer, so each can be tested on its own.
+- **Automated tests:** 122 unit tests cover document processing, session management, API authentication, SSRF protection, output sanitizing, class aggregation, the teaching-suggestion validator, retell-score validation, and the mastery verdict (`python -m unittest discover -s tests`).
+- **Privacy-minimal reporting:** Only a learning summary, concept mastery, retell scores, and at most two verbatim student sentences are synced to the teacher; the full conversation never leaves the student's device. Local, classroom-LAN, and cloud deployments are all supported.
+
+---
+
+## 4. Usage Scenarios
+
+### Scenario 1: Tackling a Textbook
+
+I import a PDF of *Principles of Microeconomics* and select "Chapter 4: Supply and Demand." The program automatically loads the chapter text and checks for a previous summary. If one exists, the AI coach asks: "Last time you struggled with the graphical analysis of consumer surplus. Now, please draw the demand curve and label it." Only after I pass this check does it move on to new material. In the final step, the AI compares my reconstruction with the original text sentence by sentence and points out that I omitted "the relationship between price elasticity of demand and sales revenue."
+
+### Scenario 2: Quick Start Without an E-book
+
+I want to review "Linear Algebra - Eigenvalues and Eigenvectors" but don't have an e-book. I choose Outline Mode, enter the topic and a brief outline. The AI still generates guiding questions, provides counterexamples, conducts examiner-style questioning, and, based on its own knowledge, points out possible logical gaps in my final reconstruction.
+
+### Scenario 3: Studying Multiple Subjects in Parallel
+
+My bookshelf contains both *Engineering Thermodynamics* and *A History of Western Philosophy*. I can study Chapter 3 of Thermodynamics in the morning and generate a summary, then switch to Philosophy in the afternoon. The learning records and weak points for the two subjects remain completely isolated.
+
+---
+
+## 5. Installation and Quick Start
+
+### Requirements
+
+- Python 3.9+
+- A DeepSeek API key
+
+### Option A: Download the ready-made app (recommended)
+
+No Python or terminal required. Grab the latest build from the [Releases](../../releases) page:
+
+- macOS: `AI-Study-Coach-macOS.zip` — unzip and run `DFL Coach.app`
+- Windows: `AI-Study-Coach-windows.zip` — unzip and run `DFL Coach.exe`
+
+macOS may show a "cannot verify the developer" warning the first time. Right-click the app and choose **Open** to proceed.
+
+### Option B: Run from source
+
+### Install dependencies
 
 ```bash
 cd AI-study-coach
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate        # macOS / Linux
 pip install -r requirements.txt
 ```
 
-## 配置 API Key
+### Run the desktop app
 
-不要把密钥写进源码。选择下面任一方式：
-
-```bash
-export DEEPSEEK_API_KEY=sk-你的DeepSeek密钥
-```
-
-或者在项目目录创建 `.env` 文件：
+macOS:
 
 ```bash
-cp .env.example .env
-# 然后编辑 .env，填入真实密钥
+./启动.command
 ```
 
-## 运行
+Windows:
 
-### 桌面 App（推荐）
+```bat
+启动.bat
+```
 
-在 macOS 上直接双击 **启动.command**，程序会自动准备好环境并打开一个独立的桌面窗口，使用体验类似 App。
-
-第一次启动时会要求填写 DeepSeek API Key，填写后会自动保存在本机，后续无需再次输入。
-
-Windows 用户双击 **启动.bat**，效果相同。
-
-### iPhone / 手机访问
-
-在 macOS 上双击 **手机访问.command**，脚本会启动局域网服务并显示一个地址。
-
-让 iPhone 和 Mac 连接同一个 Wi-Fi，然后在 iPhone 的 Safari 中打开脚本显示的地址，就能在手机上使用学习教练。脚本同时会显示一个访问密码，在手机上输入即可；本机桌面使用不需要密码。
-
-### 部署到云端（随时随地可用）
-
-如果想不依赖 Mac、在任何地方都能用，可以把项目部署到 Render 等云平台。项目里已经准备了：
-
-- `Dockerfile`
-- `render.yaml`
-- `requirements-cloud.txt`
-
-详细步骤见 [云端部署说明.md](云端部署说明.md)。
-
-云端部署需要额外设置 `APP_PASSWORD` 环境变量作为访问密码，否则任何远程访问都会被拒绝，避免陌生人白嫖你的 API 密钥。
-
-### 网页版
+### Run the web version
 
 ```bash
 python app.py
 ```
 
-启动后打开浏览器访问 <http://127.0.0.1:8000>。
+Then open <http://127.0.0.1:8000> in a browser.
 
-如果仍然想用命令行版本：
+### Mobile access on the same Wi-Fi
+
+macOS:
 
 ```bash
-python coach_v4.py
+./手机访问.command
 ```
 
-## 打包成 macOS 应用
+Windows:
 
-如果想把程序分享给别人，在 macOS 上双击 **打包.command**，脚本会生成：
-
-```text
-打包产物/app/DFL Coach.app
-打包产物/DFL-Coach-macOS.zip
+```bat
+手机访问.bat
 ```
 
-打包脚本会自动把 App 和使用说明整理成压缩包，直接把 `.zip` 发给对方即可。对方第一次打开时同样只需填写自己的 DeepSeek API Key。
+Open the displayed address on a phone connected to the same Wi-Fi network, then use Safari or Chrome to add it to the home screen. The launch script also prints an access password; enter it on the phone. Local desktop use needs no password.
 
-> 说明：打包后的应用会在 macOS 的「系统设置 → 隐私与安全性」中提示来源未知，这是未进行 Apple 签名导致的正常现象，用户右键点击应用选择「打开」即可。
+### Configure the API key
 
-## 打包成 Windows 应用
+On first launch, the app will ask for the DeepSeek API key. It is stored locally in the user data directory and is not embedded in the source code.
 
-在 Windows 电脑上双击 **打包.bat**，会生成单文件应用：
+---
 
-```text
-打包产物\app\DFL Coach.exe
-打包产物\DFL-Coach-windows.zip
-```
+## 6. Cloud Deployment
 
-把 `.zip` 发给其他 Windows 用户即可。首次打开时同样只需填写自己的 DeepSeek API Key。
+The project includes the files needed for cloud deployment:
 
-## 文件夹说明
+- `Dockerfile`
+- `render.yaml`
+- `requirements-cloud.txt`
+- `云端部署说明.md`
 
-- 根目录：源码、文档和启动/打包脚本。
-- `打包产物/`：最新可分享的 App 和压缩包。
-- `旧版本存档/`：旧的打包文件、中间文件，不会再使用。
+On Render, for example:
 
-## 目录结构
+1. Upload the project to a GitHub repository.
+2. Create a Render account and select "New → Blueprint."
+3. Choose the repository.
+4. Set the `DEEPSEEK_API_KEY` environment variable.
+5. Set the `APP_PASSWORD` environment variable to a secret you choose. Remote access is refused without it, so strangers cannot use your API key or read your data.
+6. Deploy.
 
-- `coach_v4.py`：主程序和对话流程
-- `app.py`：本地网页版界面
-- `desktop.py`：桌面窗口启动器
-- `book_utils.py`：电子书读取、章节切分与章节查询
-- `bookshelf_mgr.py`：书架数据管理
-- `summary_mgr.py`：学习总结读写
-- `session_mgr.py`：会话记录保存
-- `app_paths.py`：用户数据目录管理
-- `classroom_mgr.py`：班级、成员、任务与学情摘要的数据层（教师端与学生同步共用）
-- `advice_mgr.py`：教师端教学建议的提示词、解析与数字校验
-- `templates/teacher.html`、`static/teacher.js`：教师端总览页（指标卡、薄弱概念排行、任务进度、教学建议卡片）
+After deployment, open the generated HTTPS URL on any phone or computer. On iPhone, use Safari's "Add to Home Screen" for an app-like experience.
 
-## 数据文件
+---
 
-数据统一保存在用户目录中，而不是程序目录，方便打包分发：
+## 7. Data Storage
 
-- macOS：`~/Library/Application Support/AiStudyCoach`
-- Windows：`%APPDATA%\AiStudyCoach`
-- Linux：`~/.local/share/AiStudyCoach`
+Data is stored in the operating system's user data directory:
 
-其中包含 `my_bookshelf.json`（书架）、`summaries/`（学习总结）和 `sessions/`（会话记录）。
+- macOS: `~/Library/Application Support/AiStudyCoach`
+- Windows: `%APPDATA%\AiStudyCoach`
+- Linux: `~/.local/share/AiStudyCoach`
 
-程序目录中的旧版数据文件会在首次运行时自动迁移到新位置。
+It contains the bookshelf, imported books, learning summaries, and saved sessions. Legacy data in the project directory is migrated automatically on first run.
 
-## 授权与使用范围
+---
 
-本项目采用**代码与内容分开授权**的方式：
+## 8. Open Source Origins and the Road Ahead
 
-| 范围 | 覆盖对象 | 许可证 | 要点 |
-| --- | --- | --- | --- |
-| 代码 | 程序源码、脚本、模板与前端文件 | [PolyForm Noncommercial 1.0.0](LICENSE) | 允许个人学习、教学与学术研究等**非商业**用途；商业使用需单独授权 |
-| 内容 | 文档、自编语料、提示词文档、教学材料与截图 | [CC BY-NC-SA 4.0](LICENSE-CONTENT.md) | 可非商业使用与修改，需**署名**并以**相同协议**共享 |
+This project is my pre-university gift to myself, and my answer to the question "How should one learn with AI?" I decided to open-source it on GitHub, hoping more students can use it, or draw inspiration from it to build their own learning systems.
 
-简单说：**学校教学、个人学习和学术研究都可以免费使用**；把它用于商业培训、付费产品或企业内训，
-需要先取得授权。二次分发时请保留版权声明与许可证文本。
+### Development Journey
 
-学校使用自己的教材或讲义时，请自行确认该材料的使用授权范围；本仓库不包含、也不分发任何受版权保护的教材原文。
+The project evolved through six stages:
+
+1. **Command-line prototype** — prove that the "Deliberate Friction Learning" method works in a dialogue before building any interface.
+2. **Engineering robustness** — environment-variable keys, HTTP error handling, retries, streaming, and safe data persistence.
+3. **From CLI to web** — Flask + HTML/JS interface with Markdown rendering, bookshelf, review center, and session resumption.
+4. **Desktop and mobile** — `pywebview` window, PyInstaller packaging for macOS/Windows, in-app API key setup, LAN access, and cloud deployment files.
+5. **Content and pedagogy iteration** — EPUB and web-page import, Markdown conversion, chapter granularity, explanation intensity, and the shift from "test first" to the current two-phase "teach first, test later" flow.
+6. **Cleanup and open source** — separating source, build artifacts, and legacy files, plus a clean GitHub-ready repository.
+
+Three lessons from the journey: validate the method before polishing the interface; treat prompts as the actual product logic; iterate in the order of robustness → experience → distribution.
+
+The entire project was conceived, designed, and coded by me alone, but this is only the beginning. In the future, I plan to add more intelligent features, such as:
+
+- Arbitrary content retrieval using vector databases.
+- Persistent cloud storage so summaries and books are never lost after redeployment.
+- Multi-user accounts and per-user data isolation.
+- Learning data visualization.
+- A fully signed and distributable mobile application.
+
+If you also experience knowledge anxiety, or want to build a learning tool that perfectly fits your habits, feel free to visit the repository. Let's discuss and grow together in the process of "deliberate friction."
+
+- **Project URL:** https://github.com/fjfjkk2717821463-cpu/AI-study-coach
+- **Tech Stack:** Python + DeepSeek API
+- **Deployment:** macOS, Windows, Web, Docker-compatible cloud platforms
+- **Interfaces:** Desktop app, responsive web app, mobile browser
+
+---
+
+## Security
+
+- Local desktop use runs on `127.0.0.1` and needs no password.
+- LAN and cloud access require a password (`APP_PASSWORD` or an auto-generated local password printed by the launch script).
+- Book and session file paths are validated against the app's data directory, so remote requests cannot read arbitrary files.
+- Web-page import rejects local, private, and reserved addresses, and limits page size.
+- Markdown from the model is sanitized before rendering to prevent injected scripts.
+
+---
+
+## License
+
+This project is licensed by content type:
+
+| Scope | Covers | License |
+| --- | --- | --- |
+| Code | program source, scripts, templates, front-end files | [PolyForm Noncommercial License 1.0.0](LICENSE) — **noncommercial use only** |
+| Content | documentation, self-authored corpus, prompt documentation, teaching materials, screenshots | [CC BY-NC-SA 4.0](LICENSE-CONTENT.md) |
+
+In short: **teaching, personal study, and academic research are free**; commercial use — paid products, commercial training, enterprise deployment — requires a separate license. Please keep the copyright notice and license text when redistributing, and release derivatives under the same terms.
+
+The sample corpus in `语料库示例/` was written by the project team and contains no copyrighted textbook material.
