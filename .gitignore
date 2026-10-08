@@ -33,10 +33,19 @@ retells/
 build/
 dist/
 *.spec
+# 打包配置本身要进仓库，只有 PyInstaller 自动生成的临时 spec 才忽略
+!DFL-Coach.spec
+!DFL-Coach-Study.spec
 release/
 *.zip
 打包产物/
+打包产物-学习版/
 旧版本存档/
+
+# 本地历史存档与物料，体积大且不属于源码
+历史备份/
+推文图片包/
+*.bundle
 
 # 参赛与进校材料：含个人信息、作品材料与演示视频，不进入公开仓库
 大赛申报/

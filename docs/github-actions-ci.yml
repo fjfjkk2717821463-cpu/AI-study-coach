@@ -1,0 +1,44 @@
+# 持续集成模板：每次推送与 PR 自动跑单元测试和密钥扫描。
+#
+# 为什么放在 docs/ 而不是 .github/workflows/：
+#   GitHub 规定，用命令行推送工作流文件需要令牌带 `workflow` 权限；
+#   本项目当前使用的令牌只有 repo / read:org / gist 三个权限，
+#   直接推送会被拒绝（refusing to allow an OAuth App to create or update workflow）。
+#
+# 启用方法（二选一，都不需要重新授权命令行）：
+#   1. 在 GitHub 网页上点「Add file → Create new file」，
+#      路径填 .github/workflows/ci.yml，把这个文件的内容粘进去并提交；
+#   2. 或者给令牌补上 workflow 权限后执行：
+#        gh auth refresh -s workflow
+#        mkdir -p .github/workflows && git mv docs/github-actions-ci.yml .github/workflows/ci.yml
+#
+name: 测试与检查
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-cloud.txt
+
+      - name: 运行单元测试
+        run: python -m unittest discover -s tests -v
+
+      - name: 扫描密钥与敏感信息
+        run: python tools/secret_scan.py --tree

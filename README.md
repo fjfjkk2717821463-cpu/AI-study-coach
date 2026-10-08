@@ -291,6 +291,22 @@ If you also experience knowledge anxiety, or want to build a learning tool that 
 
 ---
 
+## 9. Releases and Version History
+
+The current version is **v2.0.0**. What changed in each version is recorded in [CHANGELOG.md](CHANGELOG.md), and the downloadable builds plus release notes live on the [Releases](https://github.com/fjfjkk2717821463-cpu/AI-study-coach/releases) page.
+
+On startup the app reads the latest GitHub release and shows an upgrade hint when a newer version exists — which is why the version number, the changelog, the Git tag, and the release always move together.
+
+Versioning follows [Semantic Versioning](https://semver.org/); the release procedure and checklist are in [docs/发布流程.md](docs/发布流程.md). To cut a release:
+
+```bash
+python tools/release.py --check     # verify version / tag / changelog are aligned
+python tools/release.py 2.1.0       # bump the version and open a new changelog section
+python tools/release.py --publish   # commit, tag, push and create the GitHub release
+```
+
+---
+
 ## Security
 
 - Local desktop use runs on `127.0.0.1` and needs no password.

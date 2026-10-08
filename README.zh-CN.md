@@ -154,12 +154,18 @@ python coach_v4.py
 - `summary_mgr.py`：学习总结读写
 - `session_mgr.py`：会话记录保存
 - `app_paths.py`：用户数据目录管理
+- `mastery_mgr.py`：复述评分、默写覆盖率与「已达标」判定
+- `review_mgr.py`：间隔复习排期
+- `settings_mgr.py`：本机设置（讲解强度、深色模式、费率等）读写
 - `classroom_mgr.py`：班级、成员、任务与学情摘要的数据层（教师端与学生同步共用）
 - `advice_mgr.py`：教师端教学建议的提示词、解析与数字校验
+- `study_profile.py`、`desktop_study.py`：个人学习版的数据准备与桌面入口
 - `templates/teacher.html`、`static/teacher.js`：教师端总览页（指标卡、薄弱概念排行、任务进度、教学建议卡片）
 - `tools/corpus_report.py`：语料库统计（章节切分结果与规模）
 - `tools/secret_scan.py`：密钥与敏感信息扫描（工作区、提交暂存区、打包产物、Git 全量历史）
 - `tools/rotate_api_key.py`：安全轮换本机保存的 API Key（备份、校验、失败自动回滚）
+- `tools/release.py`：一键发版，把版本号、更新日志、标签与 Release 对齐
+- `CHANGELOG.md`、`docs/发布流程.md`：版本历史与发版规则
 - `.githooks/pre-commit`：提交前自动调用密钥扫描，发现高危内容即拦截
 
 ## 开发与维护
@@ -184,6 +190,24 @@ python tools/secret_scan.py --all
 python tools/rotate_api_key.py --check   # 只检查当前密钥是否可用
 python tools/rotate_api_key.py           # 交互式轮换，验证失败会自动回滚
 ```
+
+**发布新版本**（让版本号、更新日志、标签与 Release 四者一致）：
+
+```bash
+python tools/release.py --check     # 体检：版本号 / 标签 / 更新日志是否对齐
+python tools/release.py 2.1.0       # 改版本号，并在 CHANGELOG.md 生成新小节
+python tools/release.py --publish   # 提交 + 打标签 + 推送 + 创建 GitHub Release
+```
+
+规则与检查清单见 [docs/发布流程.md](docs/发布流程.md)。
+
+## 版本与更新
+
+当前版本 **v2.0.0**。每一版改了什么，都记在 [CHANGELOG.md](CHANGELOG.md)；
+可下载的安装包与发布说明在 [Releases](https://github.com/fjfjkk2717821463-cpu/AI-study-coach/releases)。
+
+App 每次启动都会去读 GitHub 上最新的 Release，发现新版本时界面顶部会出现升级提示。
+版本号规则（语义化版本）、发布步骤与检查清单见 [docs/发布流程.md](docs/发布流程.md)。
 
 ## 数据文件
 
