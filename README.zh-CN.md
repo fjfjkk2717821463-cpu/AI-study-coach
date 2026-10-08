@@ -4,6 +4,8 @@
 
 一个基于 DeepSeek API 的 AI 辅助学习助手。DFL 即 **D**eliberate **F**riction **L**earning（刻意摩擦学习法）。它不直接给你答案，而是用「刻意摩擦」的方式带你完成费曼式学习：先建立框架，再通过反例、追问、口头复述和默写重构来巩固知识。
 
+[![测试与检查](https://github.com/fjfjkk2717821463-cpu/AI-study-coach/actions/workflows/ci.yml/badge.svg)](https://github.com/fjfjkk2717821463-cpu/AI-study-coach/actions/workflows/ci.yml)
+
 ## 功能
 
 - 两阶段学习流程：先「概念精讲」保证准确输入，再「费曼检测」通过输出加深理解。

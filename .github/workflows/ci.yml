@@ -1,0 +1,38 @@
+# 持续集成：每次推送到 main、以及每个 PR，都自动跑单元测试和密钥扫描。
+#
+# 本地等价命令（发布前手动跑同样的两步）：
+#   python -m unittest discover -s tests
+#   python tools/secret_scan.py --tree
+#
+# 注意：用命令行推送本文件需要令牌带 `workflow` 权限。
+# 如果以后换用别的令牌，先执行 `gh auth refresh -s workflow`，否则推送会被拒绝。
+name: 测试与检查
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-cloud.txt
+
+      - name: 运行单元测试
+        run: python -m unittest discover -s tests -v
+
+      - name: 扫描密钥与敏感信息
+        run: python tools/secret_scan.py --tree

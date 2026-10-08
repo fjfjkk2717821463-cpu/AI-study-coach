@@ -26,7 +26,7 @@
 - **语料库与文档 Markdown 化**：章节切分算法重做——教材 PDF 的页眉、目录条目与页码不再被当成章节，也不会残留在正文里；新增 `tools/corpus_report.py` 统计章节切分结果与规模；仓库内附四份自编讲义示例（经济学原理、数据结构与算法、Python 程序设计、西方音乐赏析）。
 - **个人学习版**：`AISCOACH_PERSONAL_MODE=1` 收起班级与教师端入口，`AISCOACH_DATA_DIR` 指定独立数据目录，和学校演示版的数据互不干扰。新增 `study_profile.py`、`desktop_study.py`、`tools/setup_study_profile.py`、启动与打包脚本，以及《个人学习指南.md》。
 - **打包配置入库**：`DFL-Coach.spec`（演示版）与 `DFL-Coach-Study.spec`（学习版）纳入版本管理，打包结果可复现。
-- **更新流程**：新增本文件、[docs/发布流程.md](docs/发布流程.md) 与 `tools/release.py`，一条命令完成版本号校验、测试、密钥扫描、打标签与发 Release。
+- **更新流程**：新增本文件、[docs/发布流程.md](docs/发布流程.md) 与 `tools/release.py`，一条命令完成版本号校验、测试、密钥扫描、打标签与发 Release；同时启用 GitHub Actions（`.github/workflows/ci.yml`），每次推送与 PR 自动跑单元测试和密钥扫描。
 
 ### 变更
 

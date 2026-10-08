@@ -8,6 +8,7 @@
 [![License](https://img.shields.io/badge/License-PolyForm%20Noncommercial-red)](#license)
 [![LLM](https://img.shields.io/badge/LLM-DeepSeek-536DFE)](https://www.deepseek.com/)
 [![Platforms](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Web%20%7C%20Mobile-orange)](#installation-and-quick-start)
+[![Tests](https://github.com/fjfjkk2717821463-cpu/AI-study-coach/actions/workflows/ci.yml/badge.svg)](https://github.com/fjfjkk2717821463-cpu/AI-study-coach/actions/workflows/ci.yml)
 
 From Knowledge Anxiety to Building My Own AI Study Coach: A Pre-Freshman's Practice of "Deliberate Friction Learning"
 
