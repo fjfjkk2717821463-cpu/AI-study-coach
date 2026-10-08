@@ -21,6 +21,8 @@ import book_utils
 DEFAULT_DIR = os.path.join(BASE_DIR, "语料库示例")
 SUPPORTED = (".md", ".markdown", ".txt", ".pdf", ".epub")
 REPORT_NAME = "语料库统计报告.md"
+# 说明文档不算教学语料，统计时跳过
+SKIP_NAMES = {REPORT_NAME, "语料库说明.md"}
 
 
 def _structure_hits(text):
@@ -38,7 +40,7 @@ def scan(directory):
         path = os.path.join(directory, name)
         if not os.path.isfile(path) or not name.lower().endswith(SUPPORTED):
             continue
-        if name == REPORT_NAME:  # 跳过本脚本自己生成的报告
+        if name in SKIP_NAMES:
             continue
         text, err = book_utils.load_book(path)
         if err:

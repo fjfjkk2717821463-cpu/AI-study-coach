@@ -397,8 +397,29 @@ def _extract_epub_chapters(book_path, level="auto"):
     return chapters, None
 
 
+# 解析一本大部头教材要几十秒，按（文件、粒度）缓存结果，避免重复计算。
+_CHAPTER_CACHE = {}
+_CHAPTER_CACHE_LIMIT = 4
+
+
+def _cache_key(book_path, level):
+    try:
+        stat = os.stat(book_path)
+        stamp = (stat.st_mtime, stat.st_size)
+    except OSError:
+        stamp = (0, 0)
+    return (os.path.abspath(book_path), stamp, level)
+
+
 def get_book_chapters(book_path, level="auto"):
-    """统一入口：EPUB 按目录切分，其它格式按标题正则切分。"""
+    """统一入口：EPUB 按目录切分，其它格式按标题正则切分。
+
+    结果会缓存：同一本书在不同章节粒度之间切换时不必重新解析。
+    """
+    key = _cache_key(book_path, level)
+    if key in _CHAPTER_CACHE:
+        return _CHAPTER_CACHE[key], None
+
     if not os.path.exists(book_path):
         return None, "文件不存在"
     if not _check_size(book_path):
@@ -409,6 +430,7 @@ def get_book_chapters(book_path, level="auto"):
         if err is not None:
             return None, err
         if chapters:
+            _remember_chapters(key, chapters)
             return chapters, None
 
     text, err = load_book(book_path)
@@ -418,7 +440,17 @@ def get_book_chapters(book_path, level="auto"):
     chapters = split_chapters(text, level=level)
     if not chapters:
         chapters = [("全文", text)]
+    _remember_chapters(key, chapters)
     return chapters, None
+
+
+def _remember_chapters(key, chapters):
+    _CHAPTER_CACHE[key] = chapters
+    if len(_CHAPTER_CACHE) > _CHAPTER_CACHE_LIMIT:
+        try:
+            _CHAPTER_CACHE.pop(next(iter(_CHAPTER_CACHE)))
+        except (StopIteration, KeyError):
+            pass
 
 
 def load_book(book_path):
@@ -498,6 +530,136 @@ _CHAPTER_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# 目录行：带点线、省略号或间隔号的条目，以及「第X章 标题 12」这种带页码的写法
+_TOC_LINE_PATTERN = re.compile(r"(?:\.{2,}|…{2,}|·{2,})")
+_CHAPTER_WITH_PAGE_PATTERN = re.compile(
+    r"^\s*第\s*[一二三四五六七八九十百零〇\d]+\s*[章节讲部分篇].*?\s+\d{1,4}\s*$"
+)
+# 纯页码行（含 12 / -12- / —12— 这类页眉页脚）
+_PAGE_NUMBER_PATTERN = re.compile(r"^\s*[-—–]?\s*\d{1,4}\s*[-—–]?\s*$")
+_SENTENCE_END = "。！？；：!?;:"
+_NOISE_PUNCTUATION = "。，、；：！？|"
+# 节一级标题（第X节 / 第X讲）
+_SECTION_TITLE_PATTERN = re.compile(
+    r"^\s*第\s*[一二三四五六七八九十百零〇\d]+\s*[节讲]"
+)
+# 「第X章 / 第X节 …」这种结构前缀，清理标题时要把前缀与正文分开
+_STRUCTURE_PREFIX = re.compile(
+    r"^(第\s*[一二三四五六七八九十百零〇\d]+\s*[章节课讲部分篇])\s*"
+)
+# 目录页本身不作为章节
+_TOC_TITLE_WORDS = {"目录", "目次", "总目录"}
+
+
+def _clean_heading_text(text):
+    """清理标题里的 Markdown / HTML 噪声，并去掉中文之间的空格。
+
+    PDF 转换后常见的情况：`第三章 血 液`、`第一节 | 研究对象`、
+    `<u>目录</u>`、`**Physiology**`，都要还原成人能读的标题。
+    注意保留「第X章 / 第X节」与标题正文之间的那个空格。
+    """
+    cleaned = re.sub(r"<[^>]+>", " ", text or "")
+    cleaned = re.sub(r"[*_`#]+", "", cleaned)
+    cleaned = cleaned.replace("|", " ")
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+
+    match = _STRUCTURE_PREFIX.match(cleaned)
+    if match:
+        prefix = re.sub(r"\s+", "", match.group(1))
+        rest = cleaned[match.end():]
+        rest = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", rest)
+        return (prefix + " " + rest).strip()
+
+    cleaned = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", cleaned)
+    return cleaned.strip()
+
+
+def _structure_levels(lines):
+    """从文档自身的标题分布推断"章级/节级"分别是第几层。
+
+    不同文件的写法差别很大：有的用 # 表示章、## 表示节，
+    有的（尤其是 PDF 转出来的）把章放在 ##、把节放在 ######。
+    这里取「最浅的、至少出现两次的那一层」作为章级，它的下一层作为节级。
+    """
+    counts = {}
+    for line in lines:
+        heading = _MD_HEADING_PATTERN.match(line.strip())
+        if heading:
+            size = len(heading.group(1))
+            counts[size] = counts.get(size, 0) + 1
+
+    candidates = sorted(level for level, count in counts.items() if count >= 2)
+    if not candidates:
+        return 1, 2
+    chapter_level = candidates[0]
+    deeper = [level for level in candidates if level > chapter_level]
+    section_level = deeper[0] if deeper else chapter_level + 1
+    return chapter_level, section_level
+
+
+def _boundary_rank(level, title, chapter_level=1, section_level=2):
+    """把候选标题分成两级：1=章级、2=节级、3=更小的点（不单独成讲）。
+
+    不同 PDF 的标题层级很不一样：有的书把"章"转成二级标题、把"节"转成六级标题，
+    所以不能只看 # 的数量，还要看标题本身的写法。
+    """
+    text = (title or "").strip()
+    if level <= chapter_level or _MAJOR_CHAPTER_PATTERN.match(text):
+        return 1
+    if level <= section_level or _SECTION_TITLE_PATTERN.match(text):
+        return 2
+    return 3
+
+
+def _normalize_title(text):
+    """归一化标题，用于识别重复出现的页眉。"""
+    return re.sub(r"[\s#*`_（）()【】\[\]<>]+", "", text or "")
+
+
+def _looks_like_toc_line(line):
+    text = (line or "").strip()
+    if not text:
+        return False
+    if _TOC_LINE_PATTERN.search(text):
+        return True
+    return bool(_CHAPTER_WITH_PAGE_PATTERN.match(text))
+
+
+def _is_boundary_candidate(line):
+    """能否作为章节起点：要短、不以句号结尾、不是目录条目。
+
+    这一条把「正文里提到第三章……」这类句子和目录页挡在章节之外。
+    """
+    text = (line or "").strip()
+    if not text or len(text) > 40:
+        return False
+    if text[-1] in _SENTENCE_END:
+        return False
+    return not _looks_like_toc_line(text)
+
+
+def _collect_running_headers(lines):
+    """找出重复出现的短行（页眉/页脚），返回归一化文本集合。
+
+    教材 PDF 每页都会印「第一章 绪论」这类页眉，如果不过滤，
+    切分时会把每一页都当成新的章节起点。
+    """
+    counts = {}
+    for line in lines:
+        key = _normalize_title(line)
+        if not key:
+            continue
+        counts[key] = counts.get(key, 0) + 1
+
+    noise = set()
+    for key, count in counts.items():
+        if count < 5 or len(key) > 12:
+            continue
+        if any(ch in key for ch in _NOISE_PUNCTUATION):
+            continue
+        noise.add(key)
+    return noise
+
 
 def split_chapters(text, level="auto"):
     """
@@ -507,35 +669,72 @@ def split_chapters(text, level="auto"):
     返回列表 [(title, content), ...]
     """
     lines = text.splitlines()
-    boundaries = []
+    chapter_level, section_level = _structure_levels(lines)
+    raw_boundaries = []
     for index, line in enumerate(lines):
-        heading = _MD_HEADING_PATTERN.match(line.strip())
+        stripped = line.strip()
+        heading = _MD_HEADING_PATTERN.match(stripped)
         if heading:
-            boundaries.append(
-                (index, len(heading.group(1)), heading.group(2).strip())
+            source = heading.group(2).strip()
+            title = _clean_heading_text(source)
+            if title and title not in _TOC_TITLE_WORDS and _is_boundary_candidate(source):
+                raw_boundaries.append(
+                    (
+                        index,
+                        _boundary_rank(
+                            len(heading.group(1)), title, chapter_level, section_level
+                        ),
+                        title,
+                    )
+                )
+            continue
+        if _MAJOR_CHAPTER_PATTERN.match(stripped) and _is_boundary_candidate(stripped):
+            raw_boundaries.append((index, 1, _clean_heading_text(stripped)))
+            continue
+        if _CHAPTER_PATTERN.match(stripped) and _is_boundary_candidate(stripped):
+            title = _clean_heading_text(stripped)
+            # 走这个分支的都是「第X节 / Unit N」这类，除非标题本身是第X章
+            raw_boundaries.append(
+                (index, _boundary_rank(3, title, chapter_level, section_level), title)
             )
-            continue
-        if _MAJOR_CHAPTER_PATTERN.match(line):
-            boundaries.append((index, 1, line.strip()))
-            continue
-        if _CHAPTER_PATTERN.match(line):
-            boundaries.append((index, 2, line.strip()))
+
+    # 页眉去重：同一标题在文中反复出现时，只保留"级别最高"的那一次作为章节起点
+    # （章 > 节 > 小标题；同级别时取最靠前的一次）。
+    title_counts = {}
+    best_choice = {}
+    for item in raw_boundaries:
+        key = _normalize_title(item[2])
+        title_counts[key] = title_counts.get(key, 0) + 1
+        current = best_choice.get(key)
+        if current is None or item[1] < current[1]:
+            best_choice[key] = (item[1], item[0])
+
+    boundaries = []
+    for item in raw_boundaries:
+        key = _normalize_title(item[2])
+        if title_counts.get(key, 0) >= 3:
+            # 注意：这里不要用 level / index 作为变量名，会覆盖上面的函数参数
+            kept_level, kept_index = best_choice[key]
+            if not (item[1] == kept_level and item[0] == kept_index):
+                continue
+        boundaries.append(item)
 
     if not boundaries:
         return [("全文", text)] if text.strip() else []
 
     if level == "chapter":
-        chosen = [item for item in boundaries if item[1] <= 1] or boundaries
+        chosen = [item for item in boundaries if item[1] == 1] or boundaries
     elif level == "section":
-        chosen = boundaries
+        chosen = [item for item in boundaries if item[1] <= 2] or boundaries
     else:
-        major = [item for item in boundaries if item[1] <= 1]
-        chosen = major if len(major) >= 2 else boundaries
+        chapter_items = [item for item in boundaries if item[1] == 1]
+        chosen = chapter_items if len(chapter_items) >= 2 else boundaries
 
     chapters = []
     current_title = "前言/引言"
     current_content = []
     boundary_map = {item[0]: item for item in chosen}
+    noise_lines = _collect_running_headers(lines)
 
     for index, line in enumerate(lines):
         if index in boundary_map:
@@ -544,12 +743,17 @@ def split_chapters(text, level="auto"):
             current_title = boundary_map[index][2]
             current_content = []
         else:
+            if _PAGE_NUMBER_PATTERN.match(line):
+                continue
+            if _normalize_title(line) in noise_lines:
+                continue
             current_content.append(line)
 
     if current_content:
         chapters.append((current_title, "\n".join(current_content)))
 
-    return chapters
+    # 丢掉内容为空的条目（例如标题后面紧跟着另一个标题）
+    return [(title, content) for title, content in chapters if content.strip()]
 
 
 def _title_contains_number(title, number):
