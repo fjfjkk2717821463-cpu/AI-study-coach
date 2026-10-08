@@ -6,9 +6,11 @@
     python tools/release.py 2.1.0            # 准备：改版本号 + 生成更新日志小节
     python tools/release.py --publish        # 发布：提交 + 打标签 + 推送 + 建 Release
     python tools/release.py 2.1.0 --publish  # 两步连做（更新日志要已经写好内容）
+    python tools/release.py --sync-notes     # 更新日志改了？用它把 GitHub 说明同步过去
 
 可选参数：
     --publish     准备好之后直接发布
+    --sync-notes  用 CHANGELOG.md 里当前版本的正文覆盖 GitHub Release 的说明
     --no-push     只提交和打标签，不推送、不建 Release
     --skip-tests  跳过单元测试
     --skip-scan   跳过密钥扫描
@@ -335,6 +337,33 @@ def action_publish(no_push=False, skip_tests=False, skip_scan=False):
     say("发布完成：%s/releases/tag/%s" % (REPO_URL, tag))
 
 
+def action_sync_notes():
+    """把 CHANGELOG.md 里当前版本的正文同步到已有的 GitHub Release 上。"""
+    version = read_version()
+    tag = "v" + version
+    body = changelog_section(version)
+
+    gh = gh_executable()
+    if not gh:
+        die("没有找到 gh 命令，请在网页上手动更新 %s 的发布说明。" % tag)
+
+    existing = output([gh, "release", "view", tag, "--json", "tagName"], check=False)
+    if DRY_RUN or not existing:
+        die("GitHub 上还没有 %s 这个 Release，先用 --publish 发布。" % tag)
+
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as handle:
+        handle.write(body + "\n")
+        notes_path = handle.name
+    try:
+        run([gh, "release", "edit", tag, "--notes-file", notes_path])
+    finally:
+        os.unlink(notes_path)
+
+    say("")
+    say("已用 CHANGELOG.md 里 v%s 的正文更新发布说明。" % version)
+    say("%s/releases/tag/%s" % (REPO_URL, tag))
+
+
 # --------------------------------------------------------------------------- 入口
 
 def main():
@@ -346,6 +375,7 @@ def main():
     parser.add_argument("--title", default="", help="更新日志小节标题，例如「教师端增强」")
     parser.add_argument("--check", action="store_true", help="只体检，不改动任何文件")
     parser.add_argument("--publish", action="store_true", help="提交、打标签、推送并创建 Release")
+    parser.add_argument("--sync-notes", action="store_true", help="用更新日志覆盖 GitHub Release 说明")
     parser.add_argument("--no-push", action="store_true", help="只提交和打标签，不推送")
     parser.add_argument("--skip-tests", action="store_true", help="跳过单元测试")
     parser.add_argument("--skip-scan", action="store_true", help="跳过密钥扫描")
@@ -371,7 +401,10 @@ def main():
     if args.publish:
         action_publish(no_push=args.no_push, skip_tests=args.skip_tests, skip_scan=args.skip_scan)
 
-    if not args.version and not args.publish:
+    if args.sync_notes:
+        action_sync_notes()
+
+    if not args.version and not args.publish and not args.sync_notes:
         parser.print_help()
 
 
