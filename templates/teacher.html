@@ -175,6 +175,28 @@
     }
     .hidden { display: none !important; }
     .muted { color: var(--muted); }
+
+    /* 信息层级：把"谁卡住了 + 下次课怎么讲"放在第一屏，字号整体上调 */
+    body { font-size: 16px; }
+    h2 { font-size: 18px; }
+    .hint { font-size: 14px; }
+    .metric .num { font-size: 28px; }
+    .metric .name { font-size: 14px; }
+    .metric { padding: 16px; }
+    select, input, button { font-size: 15px; }
+    details.card > summary {
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 600;
+      list-style: none;
+    }
+    details.card > summary::-webkit-details-marker { display: none; }
+    details.card > summary::before { content: "▸ "; color: var(--muted); }
+    details.card[open] > summary::before { content: "▾ "; }
+    details.card[open] > summary { margin-bottom: 16px; }
+    details.card > .grid { margin-top: 4px; }
+    .weak-item { padding: 12px 0; }
+    .advice-card { padding: 16px 18px; }
     .site-nav { float: right; font-size: 13px; }
     .site-nav a { color: var(--muted); text-decoration: none; }
     .site-nav a:hover { color: var(--accent); }
@@ -213,50 +235,50 @@
 
     <div class="grid" id="listsSection">
       <section class="card">
-        <h2>薄弱概念排行</h2>
-        <p class="hint">按卡住人数排序。点击概念可展开学生的原话证据。</p>
+        <h2>谁卡在哪个概念上</h2>
+        <p class="hint">按卡住人数排序，点开概念可以看到学生的原话。</p>
         <div id="weakList"></div>
       </section>
-      <section class="card">
-        <h2>任务进度</h2>
-        <p class="hint">谁完成了、谁还没开始。</p>
-        <div id="taskList"></div>
-      </section>
-    </div>
-
-    <section id="assignSection" class="card hidden">
-      <h2>布置学习任务</h2>
-      <p class="hint">
-        选定教材与章节后发布，学生端会出现任务卡片和截止时间；任务范围内全部章节达到「已达标」才算完成。
-      </p>
-      <div class="row">
-        <select id="assignBook" aria-label="选择教材"></select>
-        <select id="assignChapter" multiple size="4" aria-label="选择章节"></select>
-        <input id="assignDue" type="date" aria-label="截止日期">
-        <input id="assignRequirement" class="grow" placeholder="学习要求（可选），例如：必须完成默写比对环节">
-        <button id="addAssignBtn" class="primary" type="button">发布任务</button>
-      </div>
-      <p class="hint">章节可多选：按住 Command（Mac）或 Ctrl（Windows）点选。</p>
-      <p id="assignError" class="error"></p>
-      <div id="assignList"></div>
-    </section>
-
-    <section id="adviceSection" class="card hidden">
-      <div class="row between">
-        <div>
-          <h2>教学建议</h2>
-          <p class="hint">讲哪几个概念、学生错在哪、课上怎么讲。建议可以编辑、可以拒绝，决定权在您。</p>
-        </div>
+      <section class="card" id="adviceSection">
+        <h2>下次课讲什么、怎么讲</h2>
+        <p class="hint">选好统计范围，一键生成教学建议。建议可以编辑、可以拒绝，决定权在您。</p>
         <div class="row">
           <select id="scopeSelect" aria-label="统计范围"></select>
           <button id="genAdviceBtn" class="primary" type="button">生成教学建议</button>
           <button id="regenAdviceBtn" type="button">重新生成</button>
         </div>
+        <p id="adviceMeta" class="hint"></p>
+        <p id="adviceError" class="error"></p>
+        <div id="adviceList"></div>
+      </section>
+    </div>
+
+    <details class="card" id="taskPanel">
+      <summary>任务与作业：布置任务、查看进度</summary>
+      <div class="grid">
+        <div>
+          <h2>任务进度</h2>
+          <p class="hint">谁完成了、谁还没达标。</p>
+          <div id="taskList"></div>
+        </div>
+        <section id="assignSection">
+          <h2>布置学习任务</h2>
+          <p class="hint">
+            选定讲义与章节后发布，学生端会出现任务卡片和截止时间；任务范围内全部章节达到「已达标」才算完成。
+          </p>
+          <div class="row">
+            <select id="assignBook" aria-label="选择讲义"></select>
+            <select id="assignChapter" multiple size="4" aria-label="选择章节"></select>
+            <input id="assignDue" type="date" aria-label="截止日期">
+            <input id="assignRequirement" class="grow" placeholder="学习要求（可选），例如：必须完成一次复述检测">
+            <button id="addAssignBtn" class="primary" type="button">发布任务</button>
+          </div>
+          <p class="hint">章节可多选：按住 Command（Mac）或 Ctrl（Windows）点选。</p>
+          <p id="assignError" class="error"></p>
+          <div id="assignList"></div>
+        </section>
       </div>
-      <p id="adviceMeta" class="hint"></p>
-      <p id="adviceError" class="error"></p>
-      <div id="adviceList"></div>
-    </section>
+    </details>
   </div>
 
   <script src="/static/teacher.js"></script>

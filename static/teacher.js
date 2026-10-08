@@ -63,7 +63,7 @@
       $("emptyState").classList.remove("hidden");
       $("metricsSection").classList.add("hidden");
       $("listsSection").classList.add("hidden");
-      $("assignSection").classList.add("hidden");
+      $("taskPanel").classList.add("hidden");
       $("adviceSection").classList.add("hidden");
       $("classHint").textContent = "";
       state.classId = "";
@@ -73,7 +73,7 @@
     $("emptyState").classList.add("hidden");
     $("metricsSection").classList.remove("hidden");
     $("listsSection").classList.remove("hidden");
-    $("assignSection").classList.remove("hidden");
+    $("taskPanel").classList.remove("hidden");
     $("adviceSection").classList.remove("hidden");
 
     state.classes.forEach((item) => {
