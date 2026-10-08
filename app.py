@@ -46,6 +46,9 @@ WEB_MAX_BYTES = 5 * 1024 * 1024
 SESSION_TTL_SECONDS = 12 * 3600
 VERSION = "1.1.0"
 REPO_URL = "https://github.com/fjfjkk2717821463-cpu/AI-study-coach"
+# 个人学习模式：由 AISCOACH_PERSONAL_MODE=1 打开，界面收起班级与教师入口。
+# 默认关闭，学校演示与教师端行为完全不变。
+PERSONAL_MODE = (os.environ.get("AISCOACH_PERSONAL_MODE") or "").strip() == "1"
 
 BOOKS_DIR = os.path.join(app_paths.get_data_dir(), "books")
 os.makedirs(BOOKS_DIR, exist_ok=True)
@@ -413,7 +416,7 @@ def _fetch_web_text(url):
 def index():
     if not coach_v4.load_api_key():
         return render_template("setup.html")
-    return render_template("index.html")
+    return render_template("index.html", personal_mode=PERSONAL_MODE)
 
 
 @app.get("/login")

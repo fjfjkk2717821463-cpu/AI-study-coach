@@ -8,7 +8,18 @@ DATA_DIR_NAME = "AiStudyCoach"
 
 
 def get_data_dir():
-    """返回适合持久化用户数据的目录，兼容 macOS / Windows / Linux。"""
+    """返回适合持久化用户数据的目录，兼容 macOS / Windows / Linux。
+
+    如果设置了环境变量 AISCOACH_DATA_DIR，就使用它指定的目录。
+    这样可以在同一份代码上跑多个互不干扰的实例：例如一个用于学校演示，
+    一个用于个人学习，数据完全不混在一起。
+    """
+    override = (os.environ.get("AISCOACH_DATA_DIR") or "").strip()
+    if override:
+        data_dir = os.path.abspath(os.path.expanduser(override))
+        os.makedirs(data_dir, exist_ok=True)
+        return data_dir
+
     if sys.platform == "darwin":
         base = os.path.expanduser("~/Library/Application Support")
     elif os.name == "nt":

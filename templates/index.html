@@ -492,6 +492,66 @@
     .retell-quote.muted { border-left-color: var(--border); }
     .retell-summary { font-size: 14px; margin-top: 12px; }
     .ok { color: #1f7a45; font-size: 13px; }
+
+    /* 信息层级：核心动作优先，次要功能降到次级导航，整体字号上调 */
+    body { font-size: 16px; }
+    .sub { font-size: 15px; }
+    label { font-size: 15px; }
+    input, select, textarea { font-size: 16px; padding: 12px 14px; }
+    .hint { font-size: 14px; }
+    .header-actions { gap: 10px; margin-top: 16px; }
+    .header-actions button { font-size: 15px; padding: 11px 18px; }
+    .sub-nav {
+      margin-top: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 14px;
+    }
+    .sub-nav button {
+      background: none;
+      border: none;
+      padding: 2px;
+      color: var(--muted);
+      font-size: 14px;
+      cursor: pointer;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .sub-nav button:hover { color: var(--accent); }
+    .sub-nav .dot { color: var(--border); }
+    .step-row { display: flex; gap: 14px; padding: 18px 0; border-bottom: 1px solid var(--border); }
+    .step-row:last-of-type { border-bottom: none; padding-bottom: 6px; }
+    .step-no {
+      flex: 0 0 32px;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .step-body { flex: 1; min-width: 0; }
+    .step-body label { margin-top: 2px; }
+    button.big { width: 100%; padding: 16px; font-size: 17px; border-radius: 12px; }
+    button.link {
+      background: none;
+      border: none;
+      color: var(--accent);
+      font-size: 14px;
+      cursor: pointer;
+      padding: 0 2px;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .advanced { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
+    .advanced > summary { cursor: pointer; font-size: 14px; color: var(--muted); }
+    .advanced .tabs { margin-top: 14px; }
     @media (max-width: 640px) {
       .app { padding: 16px 10px 40px; }
       h1 { font-size: 24px; }
@@ -513,60 +573,94 @@
   <div class="app">
     <header>
       <h1><span class="mark" aria-hidden="true"></span>DFL Coach<span id="versionTag" class="version-tag"></span></h1>
-      <p class="sub">先带你准确学懂一个概念，再用费曼式复述、反例和默写重构来检测巩固，而不是只「看懂了」。</p>
+      <p class="sub">不直接给答案的学习教练：先讲清楚，再让你自己讲一遍。</p>
       <div class="header-actions">
         <button id="historyBtn" type="button">继续上次学习</button>
-        <button id="reviewBtn" type="button">复习所有总结</button>
-        <button id="conceptMapBtn" type="button">概念图谱</button>
-        <button id="classBtn" type="button">我的班级</button>
-        <button id="shelfBtn" type="button">管理书架</button>
-        <button id="settingsBtn" type="button">模型设置</button>
-        <button id="themeBtn" type="button">深色</button>
+        <button id="classBtn" type="button"{% if personal_mode %} class="hidden"{% endif %}>我的班级</button>
       </div>
+      <nav class="sub-nav">
+        <button id="reviewBtn" type="button">复习中心</button>
+        <span class="dot">·</span>
+        <button id="conceptMapBtn" type="button">概念图谱</button>
+        <span class="dot">·</span>
+        <button id="shelfBtn" type="button">管理书架</button>
+        <span class="dot">·</span>
+        <button id="settingsBtn" type="button">模型设置</button>
+        <span class="dot">·</span>
+        <button id="themeBtn" type="button">深色</button>
+      </nav>
     </header>
 
     <section id="setup" class="card">
-      <div class="tabs">
-        <button id="bookTab" class="active" type="button">电子书模式</button>
-        <button id="outlineTab" type="button">目录速建模式</button>
-      </div>
-
-      <div class="common-row">
-        <label for="explainLevel">讲解强度</label>
-        <select id="explainLevel">
-          <option value="high" selected>多讲解（先教再问）</option>
-          <option value="medium">适中（讲解与追问并重）</option>
-          <option value="low">少讲解（以追问为主）</option>
-        </select>
-      </div>
-
-      <div id="bookSetup">
-        <label for="bookSelect">选择书架上的书籍</label>
-        <select id="bookSelect"></select>
-        <label for="chapterSelect">选择章节</label>
-        <select id="chapterSelect"></select>
-        <label for="chapterLevel">章节层级</label>
-        <select id="chapterLevel">
-          <option value="auto" selected>自动（推荐）</option>
-          <option value="chapter">大章节</option>
-          <option value="section">小章节</option>
-        </select>
-        <label for="chapterQuery">或输入章节关键词</label>
-        <div class="chapter-wrap">
-          <input id="chapterQuery" placeholder="搜索章节，例如：第四章 / 熵 / 4">
-          <div id="chapterMenu" class="chapter-menu hidden"></div>
+      <div class="step-row">
+        <div class="step-no">1</div>
+        <div class="step-body">
+          <div id="bookSetup">
+            <label for="bookSelect">选择讲义</label>
+            <select id="bookSelect"></select>
+            <p class="hint">还没有讲义？<button id="shelfLink" class="link" type="button">导入 PDF / EPUB / 网页</button></p>
+          </div>
+          <div id="outlineSetup" class="hidden">
+            <label for="outlineTitle">学习主题</label>
+            <input id="outlineTitle" placeholder="例如：第四讲 如何写一段音乐赏析">
+          </div>
         </div>
-        <p class="hint">还没有书籍？点击上方「管理书架」，直接导入 .txt / .md / .pdf / .epub 或网页链接。</p>
       </div>
 
-      <div id="outlineSetup" class="hidden">
-        <label for="outlineTitle">学习主题 / 章节标题</label>
-        <input id="outlineTitle" placeholder="例如：热力学第二定律">
-        <label for="outlineContent">章节目录或内容要点</label>
-        <textarea id="outlineContent" placeholder="粘贴目录、大纲或你要掌握的知识点"></textarea>
+      <div class="step-row">
+        <div class="step-no">2</div>
+        <div class="step-body">
+          <div id="bookStep2">
+            <label for="chapterSelect">选择讲次</label>
+            <select id="chapterSelect"></select>
+          </div>
+          <div id="outlineStep2" class="hidden">
+            <label for="outlineContent">章节目录或要点</label>
+            <textarea id="outlineContent" placeholder="粘贴目录、大纲或你要掌握的知识点"></textarea>
+          </div>
+        </div>
       </div>
 
-      <button id="startBtn" class="primary" type="button">开始学习</button>
+      <div class="step-row">
+        <div class="step-no">3</div>
+        <div class="step-body">
+          <p class="hint" style="margin:2px 0 10px;">第一阶段讲清楚，第二阶段让你自己复述、回答追问、默写比对。</p>
+          <button id="startBtn" class="primary big" type="button">开始学习</button>
+        </div>
+      </div>
+
+      <details class="advanced">
+        <summary>更多设置（讲解强度、章节切分、关键词搜索）</summary>
+
+        <div class="common-row">
+          <label for="explainLevel">讲解强度</label>
+          <select id="explainLevel">
+            <option value="high" selected>多讲解（先教再问）</option>
+            <option value="medium">适中（讲解与追问并重）</option>
+            <option value="low">少讲解（以追问为主）</option>
+          </select>
+        </div>
+
+        <div id="bookAdvanced">
+          <label for="chapterLevel">章节层级</label>
+          <select id="chapterLevel">
+            <option value="auto" selected>自动（推荐）</option>
+            <option value="chapter">大章节</option>
+            <option value="section">小章节</option>
+          </select>
+          <label for="chapterQuery">或输入章节关键词</label>
+          <div class="chapter-wrap">
+            <input id="chapterQuery" placeholder="搜索章节，例如：第四讲 / 曲式">
+            <div id="chapterMenu" class="chapter-menu hidden"></div>
+          </div>
+        </div>
+
+        <div class="tabs">
+          <button id="bookTab" class="active" type="button">用讲义学习</button>
+          <button id="outlineTab" type="button">用目录速建</button>
+        </div>
+      </details>
+
       <p id="setupError" class="error"></p>
     </section>
 

@@ -43,6 +43,12 @@
       await loadShelfList();
     });
 
+    $("shelfLink").addEventListener("click", async () => {
+      showSection("bookshelfSection");
+      $("shelfError").textContent = "";
+      await loadShelfList();
+    });
+
     $("classBtn").addEventListener("click", async () => {
       showSection("classSection");
       $("classError").textContent = "";
@@ -164,8 +170,12 @@
       mode = nextMode;
       $("bookTab").classList.toggle("active", mode === "book");
       $("outlineTab").classList.toggle("active", mode === "outline");
-      $("bookSetup").classList.toggle("hidden", mode !== "book");
-      $("outlineSetup").classList.toggle("hidden", mode !== "outline");
+      ["bookSetup", "bookStep2", "bookAdvanced"].forEach((id) => {
+        $(id).classList.toggle("hidden", mode !== "book");
+      });
+      ["outlineSetup", "outlineStep2"].forEach((id) => {
+        $(id).classList.toggle("hidden", mode !== "outline");
+      });
       $("setupError").textContent = "";
     }
 
