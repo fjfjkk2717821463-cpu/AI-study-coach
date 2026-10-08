@@ -44,7 +44,7 @@ app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024
 
 WEB_MAX_BYTES = 5 * 1024 * 1024
 SESSION_TTL_SECONDS = 12 * 3600
-VERSION = "1.1.0"
+VERSION = "2.0.0"
 REPO_URL = "https://github.com/fjfjkk2717821463-cpu/AI-study-coach"
 # 个人学习模式：由 AISCOACH_PERSONAL_MODE=1 打开，界面收起班级与教师入口。
 # 默认关闭，学校演示与教师端行为完全不变。
